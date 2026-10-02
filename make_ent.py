@@ -154,7 +154,7 @@ for py,ko in [
 ]: alias(py,ko)
 
 STATIC={
-    "files":list("ABCDEFGH"), "ptypes":PT,
+    "files":list("ABCDEFGH"), "ptypes":PT, "backtypes":back,
     "dcl":[1,-1,0,0,1,1,-1,-1,1,2,-1,-2,1,2,-1,-2],
     "drl":[0,0,1,-1,1,-1,1,-1,2,1,2,1,-2,-1,-2,-1]
 }
@@ -166,17 +166,30 @@ for k in ["bc","bt","lc","lr","deckC","deckV","discC","discV","deadC","deadT"]:
 # 따라서 병렬 리스트는 항상 함께 채우고, 읽기 전 길이를 검사한다.
 
 # 체스판 데이터
+# 64개의 LA 블록을 한 줄에 길게 연결하지 않고, Entry에서 확실하게
+# 연결/대상 인식이 되는 8x8 반복 구조로 초기화한다.
 back=["룩","나이트","비숍","퀸","킹","비숍","나이트","룩"]
-b=[CLEAR("bc"),CLEAR("bt")]
-for c in range(1,9):
-    for r in range(1,9):
-        if r==1: col,t="백",back[c-1]
-        elif r==2: col,t="백","폰"
-        elif r==7: col,t="흑","폰"
-        elif r==8: col,t="흑",back[c-1]
-        else: col,t="-","-"
-        b += [LA("bc",col),LA("bt",t)]
-SC["판데이터"].append([WHEN("init_board_data")]+b)
+SC["판데이터"].append([
+    WHEN("init_board_data"),
+    CLEAR("bc"), CLEAR("bt"),
+    S("bc_col",1),
+    REP(8,
+        S("bc_row",1),
+        REP(8,
+            IF(eq(V("bc_row"),1),
+               [LA("bc","백"),LA("bt",item("backtypes",V("bc_col")))],
+               [IF(eq(V("bc_row"),2),
+                   [LA("bc","백"),LA("bt","폰")],
+                   [IF(eq(V("bc_row"),7),
+                       [LA("bc","흑"),LA("bt","폰")],
+                       [IF(eq(V("bc_row"),8),
+                           [LA("bc","흑"),LA("bt",item("backtypes",V("bc_col")))],
+                           [LA("bc","-"),LA("bt","-")])])])]),
+            C("bc_row",1)
+        ),
+        C("bc_col",1)
+    )
+])
 
 # UNO 덱
 deck=[CLEAR("deckC"),CLEAR("deckV")]
@@ -408,7 +421,7 @@ for l in LISTS.values():
     })
 
 proj={
-    "name":"우노카드 + 체스 v0.1.3","category":"기타","speed":60,
+    "name":"우노카드 + 체스 v0.1.4","category":"기타","speed":60,
     "objects":objects,"scenes":[{"name":"장면 1","id":"sc01"}],
     "variables":variables,
     "messages":[{"id":i,"name":n} for n,i in MSGS.items()],
