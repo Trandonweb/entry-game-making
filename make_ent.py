@@ -339,7 +339,11 @@ for i,n in enumerate(names):
         files[path]=sv.encode()
         ps.append({"id":PID[(n,pn)],"name":pn,"filename":fn,"fileurl":path,
                    "imageType":"svg","dimension":{"width":w,"height":h},"scale":100})
-    w,h=PICS[n][0][2],PICS[n][0][3]
+    first=PICS[n][0]
+    if len(first)==2:
+        w,h=100,34
+    else:
+        w,h=first[2],first[3]
     vis=n in ("뽑기버튼","사용버튼","턴종료버튼")
     scale={"말":0.4,"칸_밝음":0.5,"칸_어두움":0.5,"힌트":0.5}.get(n,1)
     pos={"뽑기버튼":(-180,-10),"사용버튼":(-180,-50),"턴종료버튼":(-180,-90)}.get(n,(0,0))
