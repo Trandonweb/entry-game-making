@@ -154,7 +154,7 @@ for py,ko in [
 ]: alias(py,ko)
 
 STATIC={
-    "files":list("ABCDEFGH"), "ptypes":PT, "backtypes":back,
+    "files":list("ABCDEFGH"), "ptypes":PT, "backtypes":["룩","나이트","비숍","퀸","킹","비숍","나이트","룩"],
     "dcl":[1,-1,0,0,1,1,-1,-1,1,2,-1,-2,1,2,-1,-2],
     "drl":[0,0,1,-1,1,-1,1,-1,2,1,2,1,-2,-1,-2,-1]
 }
