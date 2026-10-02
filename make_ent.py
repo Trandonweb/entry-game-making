@@ -328,7 +328,12 @@ objects=[]
 files={}
 for i,n in enumerate(names):
     ps=[]
-    for pn,sv,w,h in PICS[n]:
+    for item in PICS[n]:
+        if len(item) == 2:
+            pn,sv = item
+            w,h = 100,34
+        else:
+            pn,sv,w,h = item
         fn=hashlib.md5((n+pn+sv).encode()).hexdigest()
         path=f"temp/{fn[:2]}/{fn[2:4]}/image/{fn}.svg"
         files[path]=sv.encode()
