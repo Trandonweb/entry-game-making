@@ -64,7 +64,7 @@ def a(x):
         return blk("number", [str(x)])
     return blk("text", [x])
 
-def V(n): return blk("get_variable", [VAR(n)])
+def V(n): return blk("get_variable", [VAR(n),None])
 def op(o, x, y): return blk("calc_basic", [a(x), o, a(y)])
 def add(x,y): return op("PLUS",x,y)
 def sub(x,y): return op("MINUS",x,y)
@@ -408,7 +408,7 @@ for l in LISTS.values():
     })
 
 proj={
-    "name":"우노카드 + 체스 v0.1.1","category":"기타","speed":60,
+    "name":"우노카드 + 체스 v0.1.2","category":"기타","speed":60,
     "objects":objects,"scenes":[{"name":"장면 1","id":"sc01"}],
     "variables":variables,
     "messages":[{"id":i,"name":n} for n,i in MSGS.items()],
