@@ -166,9 +166,8 @@ for k in ["bc","bt","lc","lr","deckC","deckV","discC","discV","deadC","deadT"]:
 # 따라서 병렬 리스트는 항상 함께 채우고, 읽기 전 길이를 검사한다.
 
 # 체스판 데이터
-# 64개의 LA 블록을 한 줄에 길게 연결하지 않고, Entry에서 확실하게
-# 연결/대상 인식이 되는 8x8 반복 구조로 초기화한다.
-back=["룩","나이트","비숍","퀸","킹","비숍","나이트","룩"]
+# Entry에서 대상 없음이 생기지 않도록 백랭크를 리스트 항목으로 참조하지 않는다.
+# 열 번호와 행 번호는 항상 1 이상의 자연수로 직접 초기화한다.
 SC["판데이터"].append([
     WHEN("init_board_data"),
     CLEAR("bc"), CLEAR("bt"),
@@ -177,13 +176,27 @@ SC["판데이터"].append([
         S("bc_row",1),
         REP(8,
             IF(eq(V("bc_row"),1),
-               [LA("bc","백"),LA("bt",item("backtypes",V("bc_col")))],
+               [IF(eq(V("bc_col"),1),[LA("bc","백"),LA("bt","룩")]),
+                IF(eq(V("bc_col"),2),[LA("bc","백"),LA("bt","나이트")]),
+                IF(eq(V("bc_col"),3),[LA("bc","백"),LA("bt","비숍")]),
+                IF(eq(V("bc_col"),4),[LA("bc","백"),LA("bt","퀸")]),
+                IF(eq(V("bc_col"),5),[LA("bc","백"),LA("bt","킹")]),
+                IF(eq(V("bc_col"),6),[LA("bc","백"),LA("bt","비숍")]),
+                IF(eq(V("bc_col"),7),[LA("bc","백"),LA("bt","나이트")]),
+                IF(eq(V("bc_col"),8),[LA("bc","백"),LA("bt","룩")])],
                [IF(eq(V("bc_row"),2),
                    [LA("bc","백"),LA("bt","폰")],
                    [IF(eq(V("bc_row"),7),
                        [LA("bc","흑"),LA("bt","폰")],
                        [IF(eq(V("bc_row"),8),
-                           [LA("bc","흑"),LA("bt",item("backtypes",V("bc_col")))],
+                           [IF(eq(V("bc_col"),1),[LA("bc","흑"),LA("bt","룩")]),
+                            IF(eq(V("bc_col"),2),[LA("bc","흑"),LA("bt","나이트")]),
+                            IF(eq(V("bc_col"),3),[LA("bc","흑"),LA("bt","비숍")]),
+                            IF(eq(V("bc_col"),4),[LA("bc","흑"),LA("bt","퀸")]),
+                            IF(eq(V("bc_col"),5),[LA("bc","흑"),LA("bt","킹")]),
+                            IF(eq(V("bc_col"),6),[LA("bc","흑"),LA("bt","비숍")]),
+                            IF(eq(V("bc_col"),7),[LA("bc","흑"),LA("bt","나이트")]),
+                            IF(eq(V("bc_col"),8),[LA("bc","흑"),LA("bt","룩")])],
                            [LA("bc","-"),LA("bt","-")])])])]),
             C("bc_row",1)
         ),
@@ -421,7 +434,7 @@ for l in LISTS.values():
     })
 
 proj={
-    "name":"우노카드 + 체스 v0.1.4","category":"기타","speed":60,
+    "name":"우노카드 + 체스 v0.1.5","category":"기타","speed":60,
     "objects":objects,"scenes":[{"name":"장면 1","id":"sc01"}],
     "variables":variables,
     "messages":[{"id":i,"name":n} for n,i in MSGS.items()],
