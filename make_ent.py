@@ -162,6 +162,8 @@ for k,v in STATIC.items():
     LID(k); LISTS[k]["array"]=[str(x) for x in v]
 for k in ["bc","bt","lc","lr","deckC","deckV","discC","discV","deadC","deadT"]:
     LID(k)
+# Entry 리스트는 존재하지 않는 인덱스를 0으로 취급하지 않는다.
+# 따라서 병렬 리스트는 항상 함께 채우고, 읽기 전 길이를 검사한다.
 
 # 체스판 데이터
 back=["룩","나이트","비숍","퀸","킹","비숍","나이트","룩"]
@@ -194,12 +196,13 @@ SC["덱"] += [[WHEN("recycle"),
     CASTW("shuffle")]]
 SC["덱"] += [[WHEN("do_draw"),
     IF(eq(V("phase"),"draw"),
-       IF(eq(ln("deckC"),0),CASTW("recycle")),
-       IFE(eq(ln("deckC"),0),
-           [MSG("덱이 비었습니다")],
+       [IF(eq(ln("deckC"),0),CASTW("recycle")),
+        IF(gt(ln("deckC"),0),
            [S("cardC",item("deckC",1)),S("cardV",item("deckV",1)),
             LR("deckC",1),LR("deckV",1),S("phase","card"),
-            MSG("카드 사용 버튼을 누르세요")]))]]
+            MSG("카드 사용 버튼을 누르세요")],
+           [MSG("덱과 버림더미가 모두 비었습니다")])],
+       [MSG("지금은 카드를 뽑을 수 없습니다")])]]
 
 # 보드 칸
 for o,tag,target in [("칸_밝음","L",1),("칸_어두움","D",0)]:
@@ -215,9 +218,13 @@ for o,tag,target in [("칸_밝음","L",1),("칸_어두움","D",0)]:
 # 말 렌더링과 선택
 local(OBJ["말"],"pcol","prow","pk","pcc","pty","hit")
 SC["말"] += [
-    [WHEN("render"),CASTW("clear_pieces"),S("pcol",1),
-     REP(8,S("prow",1),REP(8,S("pk",idx(V("pcol"),V("prow"))),
-        IF(ne(item("bc",V("pk")),"-"),S("pcc",item("bc",V("pk"))),S("pty",item("bt",V("pk"))),CLONE()),C("prow",1)),C("pcol",1))],
+    [WHEN("render"),CASTW("clear_pieces"),
+     IF(AND(eq(ln("bc"),64),eq(ln("bt"),64)),
+        [S("pcol",1),
+         REP(8,S("prow",1),REP(8,S("pk",idx(V("pcol"),V("prow"))),
+            IF(ne(item("bc",V("pk")),"-"),
+               [S("pcc",item("bc",V("pk"))),S("pty",item("bt",V("pk"))),CLONE()]),C("prow",1)),C("pcol",1))],
+        [MSG("체스판 데이터가 아직 준비되지 않았습니다")])],
     [CST(),SHOW()],
     [WHEN("clear_pieces"),DEL()],
     [CLK(),S("pk",idx(V("pcol"),V("prow"))),
@@ -238,7 +245,8 @@ SC["말"] += [
 local(OBJ["힌트"],"hi","hc","hr")
 SC["힌트"] += [
     [WHEN("show_hints"),S("hi",1),
-     REP(ln("lc"),S("hc",item("lc",V("hi"))),S("hr",item("lr",V("hi"))),CLONE(),C("hi",1))],
+     IF(AND(gt(ln("lc"),0),gt(ln("lr"),0)),
+        [REP(ln("lc"),S("hc",item("lc",V("hi"))),S("hr",item("lr",V("hi"))),CLONE(),C("hi",1))])],
     [CST(),SHOW()],
     [WHEN("clear_hints"),DEL()],
     [CLK(),S("qc",V("hc")),S("qr",V("hr")),CAST("do_move")]
