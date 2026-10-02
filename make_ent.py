@@ -257,7 +257,7 @@ SC["선택창"] += [
 for o,m in [("뽑기버튼","do_draw"),("사용버튼","do_use"),("턴종료버튼","do_end")]:
     SC[o].append([CLK(),CAST(m)])
 
-# 이동 판정: 기본적인 킹/퀸/룩/비숍/나이트/폰 이동
+# 이동 판정: 기본적인 가로 이동 후보 생성
 SC["판정"] += [
     [WHEN("calc_legal"),
      CLEAR("lc"),CLEAR("lr"),
@@ -267,12 +267,12 @@ SC["판정"] += [
      CASTW("gen_legal")],
     [WHEN("gen_legal"),
      S("tc",V("sc")),S("tr",V("sr")),
-     REP(8,
-         S("tc",add(V("tc"),1)),
+     REP(7,
+         C("tc",1),
          IF(AND(ge(V("tc"),1),le(V("tc"),8)),
-            S("rk",idx(V("tc"),V("sr"))),
-            IF(eq(item("bc",V("rk")),"-"),LA("lc",V("tc")),LA("lc",V("tc"))))),
-         C("tc",1))]
+            [S("rk",idx(V("tc"),V("sr"))),
+             IF(eq(item("bc",V("rk")),"-"),
+                [LA("lc",V("tc")),LA("lr",V("sr"))])]))]
 ]
 
 # 게임 관리자
