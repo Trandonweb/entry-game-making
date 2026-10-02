@@ -2,6 +2,13 @@ name: Build Entry Project
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "outputs/우노카드_체스.ent"
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -19,7 +26,15 @@ jobs:
       - name: Build .ent
         run: python make_ent.py
 
-      - name: Upload .ent
+      - name: Publish .ent to repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "outputs/우노카드_체스.ent"
+          git commit -m "Build 우노카드_체스.ent" || echo "No changes to commit"
+          git push
+
+      - name: Upload .ent artifact
         uses: actions/upload-artifact@v4
         with:
           name: 우노카드-체스
