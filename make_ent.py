@@ -205,31 +205,85 @@ SC["판데이터"].append([
 ])
 
 # UNO 덱
-deck=[CLEAR("deckC"),CLEAR("deckV")]
-for col in ["빨강","노랑","초록","파랑"]:
-    vals=[str(i) for i in range(10)]+[str(i) for i in range(1,10)]+["+2","+2","금지","금지","순서바꾸기","순서바꾸기"]
-    for v in vals: deck += [LA("deckC",col),LA("deckV",v)]
-for _ in range(4): deck += [LA("deckC","검정"),LA("deckV","색바꾸기")]
-SC["덱"] += [[WHEN("build_deck")]+deck]
-SC["덱"] += [[WHEN("shuffle"),REP(300,
-    S("di",rand(1,ln("deckC"))),S("dj",rand(1,ln("deckC"))),
-    S("dt1",item("deckC",V("di"))),S("dt2",item("deckV",V("di"))),
-    LS("deckC",V("di"),item("deckC",V("dj"))),LS("deckV",V("di"),item("deckV",V("dj"))),
-    LS("deckC",V("dj"),V("dt1")),LS("deckV",V("dj"),V("dt2"))
-)]]
-SC["덱"] += [[WHEN("recycle"),
-    REP(ln("discC"),LA("deckC",item("discC",1)),LA("deckV",item("discV",1)),LR("discC",1),LR("discV",1)),
-    CASTW("shuffle")]]
-SC["덱"] += [[WHEN("do_draw"),
+# 덱 오브젝트는 거대한 108장짜리 블록 나열을 쓰지 않고,
+# 템플릿 리스트 + 1부터 시작하는 자연수 인덱스로 생성한다.
+# Entry의 리스트 슬롯은 실제 리스트 ID를 직접 받으므로 대상 없음이 생기지 않게 한다.
+STATIC["uno_colors"] = ["빨강","노랑","초록","파랑"]
+STATIC["uno_values"] = (
+    ["0"] +
+    [str(i) for i in range(1,10)] * 2 +
+    ["+2","+2","금지","금지","순서바꾸기","순서바꾸기"]
+)
+for k in ["uno_colors","uno_values"]:
+    LID(k)
+    LISTS[k]["array"]=[str(x) for x in STATIC[k]]
+
+SC["덱"] += [[
+    WHEN("build_deck"),
+    CLEAR("deckC"), CLEAR("deckV"),
+    S("dc_i",1),
+    REP(ln("uno_colors"),
+        S("dv_i",1),
+        REP(ln("uno_values"),
+            LA("deckC",item("uno_colors",V("dc_i"))),
+            LA("deckV",item("uno_values",V("dv_i"))),
+            C("dv_i",1)
+        ),
+        C("dc_i",1)
+    ),
+    S("dw_i",1),
+    REP(4,
+        LA("deckC","검정"),
+        LA("deckV","색바꾸기"),
+        C("dw_i",1)
+    )
+]]
+
+SC["덱"] += [[
+    WHEN("shuffle"),
+    IF(gt(ln("deckC"),1),
+       [REP(300,
+           S("di",rand(1,ln("deckC"))),
+           S("dj",rand(1,ln("deckC"))),
+           IF(AND(ge(V("di"),1),le(V("di"),ln("deckC"))),
+              [IF(AND(ge(V("dj"),1),le(V("dj"),ln("deckC"))),
+                  [S("dt1",item("deckC",V("di"))),
+                   S("dt2",item("deckV",V("di"))),
+                   LS("deckC",V("di"),item("deckC",V("dj"))),
+                   LS("deckV",V("di"),item("deckV",V("dj"))),
+                   LS("deckC",V("dj"),V("dt1")),
+                   LS("deckV",V("dj"),V("dt2"))])])])],
+       [])
+]]
+
+SC["덱"] += [[
+    WHEN("recycle"),
+    IF(gt(ln("discC"),0),
+       [REP(ln("discC"),
+           LA("deckC",item("discC",1)),
+           LA("deckV",item("discV",1)),
+           LR("discC",1),
+           LR("discV",1)
+       ),
+       CASTW("shuffle")],
+       [])
+]]
+
+SC["덱"] += [[
+    WHEN("do_draw"),
     IF(eq(V("phase"),"draw"),
        [IF(eq(ln("deckC"),0),CASTW("recycle")),
         IF(gt(ln("deckC"),0),
-           [S("cardC",item("deckC",1)),S("cardV",item("deckV",1)),
-            LR("deckC",1),LR("deckV",1),S("phase","card"),
+           [S("cardC",item("deckC",1)),
+            S("cardV",item("deckV",1)),
+            LR("deckC",1),
+            LR("deckV",1),
+            S("phase","card"),
             MSG("카드 사용 버튼을 누르세요")],
            [MSG("덱과 버림더미가 모두 비었습니다")])],
-       [MSG("지금은 카드를 뽑을 수 없습니다")])]]
-
+       [MSG("지금은 카드를 뽑을 수 없습니다")])
+]]
+ 
 # 보드 칸
 for o,tag,target in [("칸_밝음","L",1),("칸_어두움","D",0)]:
     P,Cc,R=tag+"par",tag+"col",tag+"row"
@@ -434,7 +488,7 @@ for l in LISTS.values():
     })
 
 proj={
-    "name":"우노카드 + 체스 v0.1.5","category":"기타","speed":60,
+    "name":"우노카드 + 체스 v0.1.6","category":"기타","speed":60,
     "objects":objects,"scenes":[{"name":"장면 1","id":"sc01"}],
     "variables":variables,
     "messages":[{"id":i,"name":n} for n,i in MSGS.items()],
