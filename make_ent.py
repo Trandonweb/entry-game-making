@@ -79,8 +79,8 @@ def le(x,y): return cmp_("LESS_OR_EQUAL",x,y)
 def AND(x,y): return blk("boolean_and_or",[x,"AND",y])
 def OR(x,y): return blk("boolean_and_or",[x,"OR",y])
 def item(l,i): return blk("value_of_index_from_list",[None,LID(l),None,a(i),None])
-def ln(l): return blk("length_of_list",[None,LID(l)])
-def rand(x,y): return blk("calc_rand",[a(x),a(y)])
+def ln(l): return blk("length_of_list",[None,LID(l),None])
+def rand(x,y): return blk("calc_rand",[None,a(x),None,a(y),None])
 def idx(c,r): return add(mul(sub(c,1),8),r)
 def S(n,x): return blk("set_variable",[VAR(n),a(x),None])
 def C(n,x): return blk("change_variable",[VAR(n),a(x),None])
@@ -408,7 +408,7 @@ for l in LISTS.values():
     })
 
 proj={
-    "name":"우노카드 + 체스 v0.1.2","category":"기타","speed":60,
+    "name":"우노카드 + 체스 v0.1.3","category":"기타","speed":60,
     "objects":objects,"scenes":[{"name":"장면 1","id":"sc01"}],
     "variables":variables,
     "messages":[{"id":i,"name":n} for n,i in MSGS.items()],
