@@ -1,0 +1,27 @@
+name: Build Entry Project
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build .ent
+        run: python make_ent.py
+
+      - name: Upload .ent
+        uses: actions/upload-artifact@v4
+        with:
+          name: 우노카드-체스
+          path: outputs/우노카드_체스.ent
+          if-no-files-found: error
