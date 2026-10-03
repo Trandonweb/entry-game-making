@@ -1,0 +1,308 @@
+name: Build Entry Project (fixed)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "make_ent.py"
+      - ".github/workflows/build-ent-fixed.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build base ENT
+        run: |
+          python -m py_compile make_ent.py
+          python make_ent.py
+
+      - name: Fix runtime, layout and draw order
+        run: |
+          python - <<'PY'
+          import io, json, tarfile, hashlib
+          from pathlib import Path
+
+          ent = Path("outputs/우노카드_체스.ent")
+
+          with tarfile.open(ent, "r:gz") as t:
+              members = {
+                  m.name: t.extractfile(m).read()
+                  for m in t.getmembers()
+                  if m.isfile()
+              }
+
+          data = json.loads(members["temp/project.json"].decode("utf-8"))
+
+          def hid(s):
+              return hashlib.md5(s.encode("utf-8")).hexdigest()[:8]
+
+          def svg(w, h, body):
+              return (
+                  f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" '
+                  f'height="{h}" viewBox="0 0 {w} {h}">{body}</svg>'
+              )
+
+          def asset(name, content):
+              raw = content.encode("utf-8")
+              fn = hashlib.md5((name + content).encode("utf-8")).hexdigest()
+              path = f"temp/{fn[:2]}/{fn[2:4]}/image/{fn}.svg"
+              members[path] = raw
+              return fn
+
+          def make_obj(name, content, w, h, x, y, order):
+              fn = asset(name, content)
+              pid = hid("picture:" + name)
+              return {
+                  "id": hid("object:" + name),
+                  "name": name,
+                  "order": order,
+                  "objectType": "sprite",
+                  "rotateMethod": "free",
+                  "scene": "sc01",
+                  "lock": False,
+                  "sprite": {
+                      "pictures": [{
+                          "id": pid,
+                          "name": name,
+                          "filename": fn,
+                          "fileurl": f"temp/{fn[:2]}/{fn[2:4]}/image/{fn}.svg",
+                          "imageType": "svg",
+                          "dimension": {"width": w, "height": h},
+                          "scale": 100
+                      }],
+                      "sounds": []
+                  },
+                  "selectedPictureId": pid,
+                  "script": "[[]]",
+                  "entity": {
+                      "x": x,
+                      "y": y,
+                      "regX": w / 2,
+                      "regY": h / 2,
+                      "scaleX": 1,
+                      "scaleY": 1,
+                      "rotation": 0,
+                      "direction": 90,
+                      "width": w,
+                      "height": h,
+                      "font": "undefinedpx ",
+                      "visible": True
+                  }
+              }
+
+          # Remove only the old visual objects injected by previous build scripts.
+          visual_names = {
+              "게임 배경", "체스판", "UNO 패널",
+              "뽑기 버튼", "사용 버튼", "턴 종료 버튼"
+          }
+          objects = [
+              o for o in data.get("objects", [])
+              if o.get("name") not in visual_names
+              and not o.get("name", "").startswith("백 ")
+              and not o.get("name", "").startswith("흑 ")
+          ]
+
+          # The previous postprocessor installed an invalid custom-function
+          # representation. Start from make_ent.py's native scripts instead.
+          # Do not invent function blocks in the serialized project.
+          data["functions"] = data.get("functions", [])
+
+          # Entry execution coordinates are -240..240 / -135..135.
+          # Keep the whole visual composition safely inside that area.
+          bg = svg(
+              480, 270,
+              '<rect width="480" height="270" fill="#17202b"/>'
+              '<rect x="6" y="6" width="468" height="258" rx="10" '
+              'fill="#202b38" stroke="#506070" stroke-width="2"/>'
+              '<text x="240" y="23" text-anchor="middle" '
+              'font-family="sans-serif" font-size="14" font-weight="bold" '
+              'fill="white">UNO CARD + CHESS</text>'
+          )
+
+          # 224x224 board: 28px per square.
+          board_parts = []
+          for r in range(8):
+              for c in range(8):
+                  color = "#f0d9b5" if (r + c) % 2 == 0 else "#b58863"
+                  board_parts.append(
+                      f'<rect x="{c*28}" y="{r*28}" width="28" height="28" fill="{color}"/>'
+                  )
+          board = svg(
+              224, 224,
+              "".join(board_parts)
+              + '<rect x="1" y="1" width="222" height="222" fill="none" '
+                'stroke="#111" stroke-width="2"/>'
+          )
+
+          panel = svg(
+              105, 230,
+              '<rect x="2" y="2" width="101" height="226" rx="9" '
+              'fill="#303b49" stroke="#718096" stroke-width="2"/>'
+              '<text x="52.5" y="23" text-anchor="middle" '
+              'font-family="sans-serif" font-size="13" font-weight="bold" '
+              'fill="white">UNO CARD</text>'
+              '<rect x="16" y="34" width="73" height="82" rx="7" '
+              'fill="white" stroke="#111" stroke-width="2"/>'
+              '<text x="52.5" y="79" text-anchor="middle" '
+              'font-family="sans-serif" font-size="12" font-weight="bold" '
+              'fill="#111">CARD</text>'
+          )
+
+          button_svgs = [
+              ("뽑기 버튼", "뽑기", "#3b82f6"),
+              ("사용 버튼", "사용", "#22c55e"),
+              ("턴 종료 버튼", "턴 종료", "#ef4444"),
+          ]
+
+          # Create in actual visual back-to-front order:
+          # biggest/background first, then board, pieces, panel, controls.
+          visual = []
+          visual.append(make_obj("게임 배경", bg, 480, 270, 0, 0, 0))
+          visual.append(make_obj("체스판", board, 224, 224, -55, 0, 10))
+
+          files = "ABCDEFGH"
+          pieces = ["룩", "나이트", "비숍", "퀸", "킹", "비숍", "나이트", "룩"]
+          symbols = {
+              "킹": "♔", "퀸": "♕", "룩": "♖",
+              "비숍": "♗", "나이트": "♘", "폰": "♙"
+          }
+
+          # Board top row is positive Y in Entry.
+          # Board center = (-55, 0), square centers = -153..43 / +98..-98.
+          for color, row, fill, stroke, sym_prefix in [
+              ("백", 0, "#f7f7f2", "#222", "♔"),
+              ("흑", 7, "#30343b", "#eee", "♚")
+          ]:
+              for c, kind in enumerate(pieces):
+                  ch = symbols[kind] if color == "백" else {
+                      "킹":"♚", "퀸":"♛", "룩":"♜",
+                      "비숍":"♝", "나이트":"♞"
+                  }[kind]
+                  body = svg(
+                      28, 28,
+                      f'<text x="14" y="22" text-anchor="middle" '
+                      f'font-family="DejaVu Sans,sans-serif" font-size="23" '
+                      f'font-weight="bold" fill="{fill}" stroke="{stroke}" '
+                      f'stroke-width="0.8">{ch}</text>'
+                  )
+                  x = -153 + c * 28
+                  y = 98 - row * 28
+                  visual.append(
+                      make_obj(
+                          f"{color} {kind} {files[c]}",
+                          body, 28, 28, x, y, 20 + len(visual)
+                      )
+                  )
+
+          for color, row, fill, stroke, ch in [
+              ("백", 1, "#f7f7f2", "#222", "♙"),
+              ("흑", 6, "#30343b", "#eee", "♟")
+          ]:
+              for c in range(8):
+                  body = svg(
+                      28, 28,
+                      f'<text x="14" y="22" text-anchor="middle" '
+                      f'font-family="DejaVu Sans,sans-serif" font-size="23" '
+                      f'font-weight="bold" fill="{fill}" stroke="{stroke}" '
+                      f'stroke-width="0.8">{ch}</text>'
+                  )
+                  x = -153 + c * 28
+                  y = 98 - row * 28
+                  visual.append(
+                      make_obj(
+                          f"{color} 폰 {files[c]}",
+                          body, 28, 28, x, y, 20 + len(visual)
+                      )
+                  )
+
+          visual.append(make_obj("UNO 패널", panel, 105, 230, 165, 0, 60))
+
+          for i, (name, label, color) in enumerate(button_svgs):
+              body = svg(
+                  82, 27,
+                  f'<rect x="1" y="1" width="80" height="25" rx="6" '
+                  f'fill="{color}" stroke="#111" stroke-width="1.5"/>'
+                  f'<text x="41" y="18" text-anchor="middle" '
+                  f'font-family="sans-serif" font-size="11" font-weight="bold" '
+                  f'fill="white">{label}</text>'
+              )
+              visual.append(
+                  make_obj(name, body, 82, 27, 165, 57 - i * 39, 70 + i)
+              )
+
+          # Append visuals after the native game objects, but give them explicit
+          # increasing draw orders so the largest/background is always behind.
+          data["objects"] = objects + visual
+
+          data.setdefault("interface", {})
+          data["interface"]["canvasWidth"] = 480
+          data["interface"]["canvasHeight"] = 270
+
+          # Validate every visible object against the real Entry stage.
+          for o in data["objects"]:
+              e = o.get("entity", {})
+              if not e.get("visible"):
+                  continue
+              x, y = e.get("x", 0), e.get("y", 0)
+              w, h = e.get("width", 0), e.get("height", 0)
+              if x - w/2 < -240 or x + w/2 > 240:
+                  raise SystemExit(f"X overflow: {o.get('name')}")
+              if y - h/2 < -135 or y + h/2 > 135:
+                  raise SystemExit(f"Y overflow: {o.get('name')}")
+
+          members["temp/project.json"] = json.dumps(
+              data, ensure_ascii=False, separators=(",", ":")
+          ).encode("utf-8")
+
+          tmp = ent.with_suffix(".tmp.ent")
+          with tarfile.open(tmp, "w:gz", compresslevel=6) as t:
+              for path, raw in members.items():
+                  ti = tarfile.TarInfo(path)
+                  ti.size = len(raw)
+                  ti.mtime = 0
+                  ti.mode = 0o644
+                  t.addfile(ti, io.BytesIO(raw))
+          tmp.replace(ent)
+
+          print("fixed ENT generated")
+          print("objects:", len(data["objects"]))
+          print("functions:", len(data.get("functions", [])))
+          print("canvas:", data["interface"].get("canvasWidth"), data["interface"].get("canvasHeight"))
+          PY
+
+      - name: Validate ENT
+        run: |
+          python - <<'PY'
+          import io, json, tarfile
+          from pathlib import Path
+          p = Path("outputs/우노카드_체스.ent")
+          with tarfile.open(p, "r:gz") as t:
+              raw = t.extractfile("temp/project.json").read()
+          d = json.loads(raw)
+          names = [o.get("name") for o in d["objects"]]
+          assert names.index("게임 배경") < names.index("체스판")
+          assert names.index("체스판") < names.index("UNO 패널")
+          assert d["interface"].get("canvasWidth") == 480
+          assert d["interface"].get("canvasHeight") == 270
+          print("ENT validation OK")
+          PY
+
+      - name: Commit generated ENT
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add outputs/우노카드_체스.ent
+          git diff --cached --quiet || git commit -m "fix: make UNO chess project executable and fit stage"
+          git push
