@@ -23,15 +23,110 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Repair generator and align ENT compression
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("make_ent.py")
+          s = p.read_text(encoding="utf-8")
+
+          shuffle = '''SC["덱"] += [[
+              WHEN("shuffle"),
+              IF(gt(ln("deckC"),1),
+                 [REP(300,
+                     S("di",rand(1,ln("deckC"))),
+                     S("dj",rand(1,ln("deckC"))),
+                     IF(AND(ge(V("di"),1),le(V("di"),ln("deckC"))),
+                        [IF(AND(ge(V("dj"),1),le(V("dj"),ln("deckC"))),
+                            [S("dt1",item("deckC",V("di"))),
+                             S("dt2",item("deckV",V("di"))),
+                             LS("deckC",V("di"),item("deckC",V("dj"))),
+                             LS("deckV",V("di"),item("deckV",V("dj"))),
+                             LS("deckC",V("dj"),V("dt1")),
+                             LS("deckV",V("dj"),V("dt2"))]
+                        )]
+                     )
+                 )],
+                 [])
+          ]]
+          '''
+
+          pattern = r'SC\["덱"\] \+= \[\[\n    WHEN\("shuffle"\),.*?\n\]\]\n\nSC\["덱"\] \+= \[\[\n    WHEN\("recycle"\),'
+          replacement = shuffle + '\nSC["덱"] += [[\n    WHEN("recycle"),'
+          s2, n = re.subn(pattern, replacement, s, count=1, flags=re.S)
+          if n != 1:
+              raise SystemExit("shuffle section repair target not found")
+          s = s2
+
+          s = s.replace('tarfile.open(out,"w:gz")', 'tarfile.open(out,"w:gz",compresslevel=6)')
+          s = s.replace('"name":"우노카드 + 체스 v0.1.6"', '"name":"우노카드 + 체스 v0.1.7"')
+          p.write_text(s, encoding="utf-8")
+          PY
+
+          python -m py_compile make_ent.py
+
       - name: Build .ent
         run: python make_ent.py
 
-      - name: Publish .ent to repository
+      - name: Validate generated ENT project JSON
+        run: |
+          python - <<'PY'
+          import io, json, tarfile
+          from pathlib import Path
+
+          ent = Path("outputs/우노카드_체스.ent")
+          if not ent.exists() or ent.stat().st_size == 0:
+              raise SystemExit("ENT file was not created")
+
+          with tarfile.open(ent, "r:gz") as t:
+              member = t.getmember("temp/project.json")
+              data = json.loads(t.extractfile(member).read().decode("utf-8"))
+
+          required = ["objects", "variables", "messages", "functions", "scenes", "interface"]
+          missing = [k for k in required if k not in data]
+          if missing:
+              raise SystemExit(f"project.json missing keys: {missing}")
+
+          var_ids = {v["id"] for v in data["variables"] if isinstance(v, dict) and "id" in v}
+          msg_ids = {m["id"] for m in data["messages"] if isinstance(m, dict) and "id" in m}
+          block_count = 0
+
+          def walk(value):
+              global block_count
+              if isinstance(value, dict):
+                  if "type" in value:
+                      block_count += 1
+                      if not isinstance(value.get("params", []), list):
+                          raise SystemExit(f"invalid params in block {value.get('id')}")
+                      if not isinstance(value.get("statements", []), list):
+                          raise SystemExit(f"invalid statements in block {value.get('id')}")
+                  for child in value.values():
+                      walk(child)
+              elif isinstance(value, list):
+                  for child in value:
+                      walk(child)
+
+          for obj in data["objects"]:
+              if not isinstance(obj.get("script"), str):
+                  raise SystemExit(f"object script is not JSON text: {obj.get('name')}")
+              script = json.loads(obj["script"])
+              walk(script)
+
+          if not data["objects"] or block_count == 0:
+              raise SystemExit("no objects or blocks found")
+
+          print(f"ENT validation OK: {ent.stat().st_size} bytes, objects={len(data['objects'])}, blocks={block_count}")
+          print(f"variables={len(var_ids)}, messages={len(msg_ids)}")
+          PY
+
+      - name: Publish repaired source and .ent
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "outputs/우노카드_체스.ent"
-          git commit -m "Build 우노카드_체스.ent" || echo "No changes to commit"
+          git add make_ent.py "outputs/우노카드_체스.ent"
+          git commit -m "Repair v0.1.7 generator and build ENT" || echo "No changes to commit"
           git push
 
       - name: Upload .ent artifact
