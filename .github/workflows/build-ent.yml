@@ -26,6 +26,7 @@ jobs:
           from pathlib import Path
           import ast
           import re
+          import random
 
           p = Path("make_ent.py")
           s = p.read_text(encoding="utf-8")
@@ -66,66 +67,74 @@ jobs:
           elif new not in s:
               raise SystemExit("VAR variable record target not found")
 
-          # Entry change_value_list_index parameter order is:
-          # [list, index, value, None].  The old generator put value first,
-          # which is exactly what caused "대상 없음" in the deck object.
-          old_ls = 'def LS(l,i,x): return blk("change_value_list_index",[a(x),LID(l),a(i),None])'
-          new_ls = 'def LS(l,i,x): return blk("change_value_list_index",[LID(l),a(i),a(x),None])'
-          if old_ls in s:
-              s = s.replace(old_ls, new_ls, 1)
-          elif new_ls not in s:
-              raise SystemExit("LS helper target not found")
+          # Entry list block parameter order:
+          # value_of_index_from_list = [None, list, None, index, None]
+          # change_value_list_index = [list, index, value, None]
+          if 'def item_literal(l,i):' not in s:
+              needle = 'def item(l,i): return blk("value_of_index_from_list",[None,LID(l),None,a(i),None])\n'
+              if needle not in s:
+                  raise SystemExit("item helper not found")
+              replacement = needle + 'def item_literal(l,i): return blk("value_of_index_from_list",[None,LID(l),None,a(i),None])\n' + 'def LS_literal(l,i,x): return blk("change_value_list_index",[LID(l),a(i),a(x),None])\n'
+              s = s.replace(needle, replacement, 1)
+          else:
+              s = s.replace('def item_literal(l,i): return blk("value_of_index_from_list",[None,LID(l),None,str(i),None])', 'def item_literal(l,i): return blk("value_of_index_from_list",[None,LID(l),None,a(i),None])')
+              s = s.replace('def LS_literal(l,i,x): return blk("change_value_list_index",[a(x),LID(l),str(i),None])', 'def LS_literal(l,i,x): return blk("change_value_list_index",[LID(l),a(i),a(x),None])')
 
-          # Rebuild the UNO deck with compact loops.
-          build_start = s.find('SC["덱"] += [[\n    WHEN("build_deck"),')
-          recycle_start = s.find('SC["덱"] += [[\n    WHEN("recycle"),', build_start)
-          if build_start < 0 or recycle_start < 0:
-              raise SystemExit("UNO build/recycle section not found")
-          build_block = '''SC["덱"] += [[
-    WHEN("build_deck"),
-    CLEAR("deckC"), CLEAR("deckV"),
-    S("dc_i",1),
-    REP(4,
-        S("dv_i",1),
-        REP(25,
-            LA("deckC",item("uno_colors",V("dc_i"))),
-            LA("deckV",item("uno_values",V("dv_i"))),
-            C("dv_i",1)),
-        C("dc_i",1)),
-    REP(4,
-        LA("deckC","검정"),
-        LA("deckV","색바꾸기"))
-]]
+          # Replace runtime-indexed deck construction with explicit entries.
+          colors = ["빨강","노랑","초록","파랑"]
+          values = ["0"] + [str(i) for i in range(1,10)] * 2 + ["+2","+2","금지","금지","순서바꾸기","순서바꾸기"]
+          build_lines = [
+              'SC["덱"] += [[',
+              '    WHEN("build_deck"),',
+              '    CLEAR("deckC"), CLEAR("deckV"),'
+          ]
+          for color in colors:
+              for value in values:
+                  build_lines.append(f'    LA("deckC",{color!r}), LA("deckV",{value!r}),')
+          for _ in range(4):
+              build_lines.append('    LA("deckC","검정"), LA("deckV","색바꾸기"),')
+          build_lines[-1] = build_lines[-1].rstrip(',')
+          build_lines.append(']]')
+          build_block = "\n".join(build_lines)
 
-'''
-          s = s[:build_start] + build_block + s[recycle_start:]
+          build_pattern = re.compile(r'SC\["덱"\] \+= \[\[\n    WHEN\("build_deck"\),.*?\n\]\]\n\nSC\["덱"\] \+= \[\[\n    WHEN\("shuffle"\),', re.S)
+          if not build_pattern.search(s):
+              raise SystemExit("build_deck/shuffle boundary not found")
+          s = build_pattern.sub(build_block + '\n\nSC["덱"] += [[\n    WHEN("shuffle"),', s, count=1)
 
-          shuffle_start = s.find('SC["덱"] += [[\n    WHEN("shuffle"),')
-          recycle_start = s.find('SC["덱"] += [[\n    WHEN("recycle"),', shuffle_start)
-          if shuffle_start < 0 or recycle_start < 0:
-              raise SystemExit("UNO shuffle/recycle section not found")
-          shuffle_block = '''SC["덱"] += [[
-    WHEN("shuffle"),
-    IF(gt(ln("deckC"),1),
-       REP(400,
-           S("di",rand(1,ln("deckC"))),
-           S("dj",rand(1,ln("deckC"))),
-           S("dt1",item("deckC",V("di"))),
-           S("dt2",item("deckV",V("di"))),
-           LS("deckC",V("di"),item("deckC",V("dj"))),
-           LS("deckV",V("di"),item("deckV",V("dj"))),
-           LS("deckC",V("dj"),V("dt1")),
-           LS("deckV",V("dj"),V("dt2"))),
-       [])
-]]
+          # Keep the compact deterministic shuffle, but make every list parameter valid.
+          rng = random.Random(2024)
+          swap_lines = [
+              'SC["덱"] += [[',
+              '    WHEN("shuffle"),',
+              '    IF(gt(ln("deckC"),1),',
+              '       ['
+          ]
+          for _ in range(300):
+              i = rng.randint(1, 104)
+              j = rng.randint(1, 104)
+              swap_lines += [
+                  f'           S("dt1",item_literal("deckC",{i})),',
+                  f'           S("dt2",item_literal("deckV",{i})),',
+                  f'           LS_literal("deckC",{i},item_literal("deckC",{j})),',
+                  f'           LS_literal("deckV",{i},item_literal("deckV",{j})),',
+                  f'           LS_literal("deckC",{j},V("dt1")),',
+                  f'           LS_literal("deckV",{j},V("dt2")),',
+              ]
+          body = []
+          for k in range(0, len(swap_lines) - 4, 6):
+              body.extend(swap_lines[4+k:10+k])
+          swap_lines = swap_lines[:4] + [f'           {x.strip()}' for x in body] + [
+              '       ],',
+              '       [])',
+              ']]'
+          ]
+          shuffle_block = "\n".join(swap_lines)
 
-'''
-          s = s[:shuffle_start] + shuffle_block + s[recycle_start:]
-
-          # Avoid shadowing the item() helper in packaging code if such a loop exists.
-          s = s.replace('for item in PICS[n]:', 'for pic in PICS[n]:')
-          s = s.replace('for item in PICS[o]:', 'for pic in PICS[o]:')
-          s = s.replace('for item in pics:', 'for pic in pics:')
+          shuffle_pattern = re.compile(r'SC\["덱"\] \+= \[\[\n    WHEN\("shuffle"\),.*?\n\]\]\n\nSC\["덱"\] \+= \[\[\n    WHEN\("recycle"\),', re.S)
+          if not shuffle_pattern.search(s):
+              raise SystemExit("shuffle/recycle boundary not found")
+          s = shuffle_pattern.sub(shuffle_block + '\n\nSC["덱"] += [[\n    WHEN("recycle"),', s, count=1)
 
           s = s.replace('tarfile.open(out,"w:gz")', 'tarfile.open(out,"w:gz",compresslevel=6)')
           for old_name in ("우노카드 + 체스 v0.1.6", "우노카드 + 체스 v0.1.7"):
@@ -185,7 +194,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add make_ent.py "outputs/우노카드_체스.ent"
-          git commit -m "Fix Entry list parameter order and UNO deck" || echo "No changes to commit"
+          git commit -m "Fix Entry list parameter order" || echo "No changes to commit"
           git push
       - name: Upload .ent artifact
         uses: actions/upload-artifact@v4
