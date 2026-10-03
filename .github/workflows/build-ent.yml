@@ -25,6 +25,8 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import ast
+          import re
+          import random
 
           p = Path("make_ent.py")
           s = p.read_text(encoding="utf-8")
@@ -36,7 +38,7 @@ jobs:
               "flip":"보드 회전 상태", "skip":"턴 건너뛰기", "win":"승리 상태",
               "moves":"남은 이동 횟수", "turn":"현재 플레이어",
               "sel_c":"선택한 열", "sel_r":"선택한 행", "selColor":"선택한 말 색",
-              "selType":"선택한 말 종류", "selCol":"선택한 말 열", "selRow":"선택한 말 행",
+              "selType":"선택한 말 종류", "selCol":"선택한 말 열", "selRow":"선택한 행",
               "pcol":"말 현재 열", "prow":"말 현재 행", "pk":"말 보드 위치",
               "pcc":"말 색", "pty":"말 종류", "hit":"잡힌 말 여부",
               "hi":"힌트 순번", "hc":"힌트 열", "hr":"힌트 행",
@@ -64,6 +66,75 @@ jobs:
               s = s.replace(old, new, 1)
           elif new not in s:
               raise SystemExit("VAR variable record target not found")
+
+          # Deck object: list INDEX params must be literal natural-number values.
+          # Do not generate nested number blocks (their ids become values such as koa6).
+          if 'def item_literal(l,i):' not in s:
+              needle = 'def item(l,i): return blk("value_of_index_from_list",[None,LID(l),None,a(i),None])\n'
+              if needle not in s:
+                  raise SystemExit("item helper not found")
+              replacement = needle + 'def item_literal(l,i): return blk("value_of_index_from_list",[None,LID(l),None,str(i),None])\n' + 'def LS_literal(l,i,x): return blk("change_value_list_index",[a(x),LID(l),str(i),None])\n'
+              s = s.replace(needle, replacement, 1)
+
+          # Replace runtime-indexed deck construction with explicit literal entries.
+          colors = ["빨강","노랑","초록","파랑"]
+          values = ["0"] + [str(i) for i in range(1,10)] * 2 + ["+2","+2","금지","금지","순서바꾸기","순서바꾸기"]
+          build_lines = [
+              'SC["덱"] += [[',
+              '    WHEN("build_deck"),',
+              '    CLEAR("deckC"), CLEAR("deckV"),'
+          ]
+          for color in colors:
+              for value in values:
+                  build_lines.append(f'    LA("deckC",{color!r}), LA("deckV",{value!r}),')
+          for _ in range(4):
+              build_lines.append('    LA("deckC","검정"), LA("deckV","색바꾸기"),')
+          build_lines[-1] = build_lines[-1].rstrip(',')
+          build_lines.append(']]')
+          build_block = "\n".join(build_lines)
+
+          build_pattern = re.compile(r'SC\["덱"\] \+= \[\[\n    WHEN\("build_deck"\),.*?\n\]\]\n\nSC\["덱"\] \+= \[\[\n    WHEN\("shuffle"\),', re.S)
+          if not build_pattern.search(s):
+              raise SystemExit("build_deck/shuffle boundary not found")
+          s = build_pattern.sub(build_block + '\n\nSC["덱"] += [[\n    WHEN("shuffle"),', s, count=1)
+
+          # Replace runtime-indexed random swaps with 300 swaps whose indices are literal 1..N values.
+          # The permutation is deterministic for a generated project, but the Entry project itself
+          # contains no invalid index block ids in the deck object.
+          rng = random.Random(2024)
+          swap_lines = [
+              'SC["덱"] += [[',
+              '    WHEN("shuffle"),',
+              '    IF(gt(ln("deckC"),1),',
+              '       ['
+          ]
+          for _ in range(300):
+              i = rng.randint(1, 104)
+              j = rng.randint(1, 104)
+              swap_lines += [
+                  f'           S("dt1",item_literal("deckC",{i})),',
+                  f'           S("dt2",item_literal("deckV",{i})),',
+                  f'           LS_literal("deckC",{i},item_literal("deckC",{j})),',
+                  f'           LS_literal("deckV",{i},item_literal("deckV",{j})),',
+                  f'           LS_literal("deckC",{j},V("dt1")),',
+                  f'           LS_literal("deckV",{j},V("dt2")),',
+              ]
+          # Turn the flat list into a valid repeat body.
+          body = []
+          for k in range(0, len(swap_lines) - 4, 6):
+              body.extend(swap_lines[4+k:10+k])
+          swap_lines = swap_lines[:4] + [f'           {x.strip()}' for x in body] + [
+              '       ],',
+              '       [])',
+              ']]'
+          ]
+          shuffle_block = "\n".join(swap_lines)
+
+          shuffle_pattern = re.compile(r'SC\["덱"\] \+= \[\[\n    WHEN\("shuffle"\),.*?\n\]\]\n\nSC\["덱"\] \+= \[\[\n    WHEN\("recycle"\),', re.S)
+          if not shuffle_pattern.search(s):
+              raise SystemExit("shuffle/recycle boundary not found")
+          s = shuffle_pattern.sub(shuffle_block + '\n\nSC["덱"] += [[\n    WHEN("recycle"),', s, count=1)
+
           s = s.replace('tarfile.open(out,"w:gz")', 'tarfile.open(out,"w:gz",compresslevel=6)')
           for old_name in ("우노카드 + 체스 v0.1.6", "우노카드 + 체스 v0.1.7"):
               s = s.replace('"name":"' + old_name + '"', '"name":"우노카드 + 체스 v0.1.8"')
@@ -122,7 +193,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add make_ent.py "outputs/우노카드_체스.ent"
-          git commit -m "Make Entry variables readable and build v0.1.8" || echo "No changes to commit"
+          git commit -m "Fix UNO deck literal list indices" || echo "No changes to commit"
           git push
       - name: Upload .ent artifact
         uses: actions/upload-artifact@v4
