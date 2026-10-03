@@ -136,6 +136,20 @@ jobs:
               raise SystemExit("shuffle/recycle boundary not found")
           s = shuffle_pattern.sub(shuffle_block + '\n\nSC["덱"] += [[\n    WHEN("recycle"),', s, count=1)
 
+          # Fix blank stage: clones must be positioned before create_clone,
+          # and the three UI buttons must be inside the 640x480 stage.
+          helper = 'def LOC(x,y): return blk("locate_xy",[a(x),a(y),None])\\n'
+          if 'def LOC(x,y):' not in s:
+              marker2 = 'def CLONE(): return blk("create_clone",["self",None])\\n'
+              if marker2 not in s:
+                  raise SystemExit("CLONE helper not found")
+              s = s.replace(marker2, marker2 + helper, 1)
+
+          s = s.replace('IF(eq(V(P),target),CLONE())', 'IF(eq(V(P),target),[LOC(sub(-196,mul(sub(V(Cc),1),56)),sub(196,mul(sub(V(R),1),56))),CLONE()])')
+          s = s.replace('S("pcc",item("bc",V("pk"))),S("pty",item("bt",V("pk"))),CLONE()', 'S("pcc",item("bc",V("pk"))),S("pty",item("bt",V("pk"))),LOC(sub(-196,mul(sub(V("pcol"),1),56)),sub(196,mul(sub(V("prow"),1),56))),CLONE()')
+          s = s.replace('pos={"뽑기버튼":(-180,-10),"사용버튼":(-180,-50),"턴종료버튼":(-180,-90)}', 'pos={"뽑기버튼":(250,150),"사용버튼":(250,100),"턴종료버튼":(250,50)}')
+          s = s.replace('"name":"우노카드 + 체스 v0.1.8"', '"name":"우노카드 + 체스 v0.1.9"')
+
           s = s.replace('tarfile.open(out,"w:gz")', 'tarfile.open(out,"w:gz",compresslevel=6)')
           for old_name in ("우노카드 + 체스 v0.1.6", "우노카드 + 체스 v0.1.7"):
               s = s.replace('"name":"' + old_name + '"', '"name":"우노카드 + 체스 v0.1.8"')
