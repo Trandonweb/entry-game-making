@@ -252,7 +252,10 @@ SC["덱"] += [[
                    LS("deckC",V("di"),item("deckC",V("dj"))),
                    LS("deckV",V("di"),item("deckV",V("dj"))),
                    LS("deckC",V("dj"),V("dt1")),
-                   LS("deckV",V("dj"),V("dt2"))])])])],
+                   LS("deckV",V("dj"),V("dt2"))]
+              )]
+           )
+       )],
        [])
 ]]
 
@@ -488,7 +491,7 @@ for l in LISTS.values():
     })
 
 proj={
-    "name":"우노카드 + 체스 v0.1.6","category":"기타","speed":60,
+    "name":"우노카드 + 체스 v0.1.7","category":"기타","speed":60,
     "objects":objects,"scenes":[{"name":"장면 1","id":"sc01"}],
     "variables":variables,
     "messages":[{"id":i,"name":n} for n,i in MSGS.items()],
@@ -500,7 +503,7 @@ proj={
 
 os.makedirs("outputs",exist_ok=True)
 out="outputs/우노카드_체스.ent"
-with tarfile.open(out,"w:gz") as t:
+with tarfile.open(out,"w:gz",compresslevel=6) as t:
     def addb(path,data):
         ti=tarfile.TarInfo(path)
         ti.size=len(data)
