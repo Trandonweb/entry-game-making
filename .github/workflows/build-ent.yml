@@ -212,17 +212,18 @@ jobs:
 
           vis=[obj("게임 배경",bg,480,360,0,0)]
           vis.append(obj("체스판",board,320,320,-70,0))
+          vis[-1]["entity"]["scaleX"]=0.825; vis[-1]["entity"]["scaleY"]=0.825
           files="ABCDEFGH"; kinds=["룩","나이트","비숍","퀸","킹","비숍","나이트","룩"]
           symbols={"킹":"♔","퀸":"♕","룩":"♖","비숍":"♗","나이트":"♘","폰":"♙"}
           for color,row,fill,stroke in [("백",0,"#f7f7f2","#222"),("흑",7,"#30343b","#eee")]:
               for c,k in enumerate(kinds):
                   ch=symbols[k]
                   body=svg(40,40,f'<text x="20" y="31" text-anchor="middle" font-family="DejaVu Sans,sans-serif" font-size="32" font-weight="bold" fill="{fill}" stroke="{stroke}" stroke-width="1">{ch}</text>')
-                  vis.append(obj(f"{color} {k} {files[c]}",body,40,40,-210+c*40,140-row*40))
+                  vis.append(obj(f"{color} {k} {files[c]}",body,40,40,-185.5+c*33,115.5 if color=="흑" else -115.5))
           for color,row,chfill,chstroke in [("백",1,"#f7f7f2","#222"),("흑",6,"#30343b","#eee")]:
               for c in range(8):
                   body=svg(40,40,f'<text x="20" y="31" text-anchor="middle" font-family="DejaVu Sans,sans-serif" font-size="32" font-weight="bold" fill="{chfill}" stroke="{chstroke}" stroke-width="1">{symbols["폰"]}</text>')
-                  vis.append(obj(f"{color} 폰 {files[c]}",body,40,40,-210+c*40,140-row*40))
+                  vis.append(obj(f"{color} 폰 {files[c]}",body,40,40,-185.5+c*33,82.5 if color=="흑" else -82.5))
           vis.append(obj("UNO 패널",panel,120,300,170,10))
 
           # Reuse the existing interactive button objects, but put them inside the
