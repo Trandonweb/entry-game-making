@@ -13,55 +13,21 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Repair generator, rename variables, and align ENT compression
+      - name: Prepare generator
         run: |
           python - <<'PY'
           from pathlib import Path
-          import re
+          import ast
 
           p = Path("make_ent.py")
           s = p.read_text(encoding="utf-8")
-
-          shuffle = '''SC["덱"] += [[
-              WHEN("shuffle"),
-              IF(gt(ln("deckC"),1),
-                 [REP(300,
-                     S("di",rand(1,ln("deckC"))),
-                     S("dj",rand(1,ln("deckC"))),
-                     IF(AND(ge(V("di"),1),le(V("di"),ln("deckC"))),
-                        [IF(AND(ge(V("dj"),1),le(V("dj"),ln("deckC"))),
-                            [S("dt1",item("deckC",V("di"))),
-                             S("dt2",item("deckV",V("di"))),
-                             LS("deckC",V("di"),item("deckC",V("dj"))),
-                             LS("deckV",V("di"),item("deckV",V("dj"))),
-                             LS("deckC",V("dj"),V("dt1")),
-                             LS("deckV",V("dj"),V("dt2"))]
-                        )]
-                     )
-                 )],
-                 [])
-          ]]
-          '''
-
-          pattern = r'SC\\["덱"\\] \\+= \\[\\[\\n    WHEN\\("shuffle"\\),.*?\\n\\]\\]\\n\\nSC\\["덱"\\] \\+= \\[\\[\\n    WHEN\\("recycle"\\),'
-          replacement = shuffle + '\nSC["덱"] += [[\n    WHEN("recycle"),'
-          s2, n = re.subn(pattern, replacement, s, count=1, flags=re.S)
-          if n != 1:
-              raise SystemExit("shuffle section repair target not found")
-          s = s2
-
-          # 내부 계산용 짧은 이름을 Entry 화면에서는 사람이 읽을 수 있는 이름으로 표시한다.
-          # koa6 같은 값은 변수명이 아니라 블록 ID이므로 여기서 이름을 만들 대상이 아니다.
           readable = {
               "bc_col":"보드 현재 열", "bc_row":"보드 현재 행",
               "dc_i":"덱 색상 순번", "dv_i":"덱 카드 순번", "dw_i":"와일드 카드 순번",
@@ -80,57 +46,51 @@ jobs:
               "rk":"검사 보드 위치", "qc":"목표 열", "qr":"목표 행",
               "mk":"출발 보드 위치", "mk2":"도착 보드 위치"
           }
-          marker = 'READABLE_VAR_NAMES = '
-          if marker not in s:
-              mapping = 'READABLE_VAR_NAMES = ' + repr(readable) + '\n'
-              needle = 'def VAR(n):\n'
+          marker = "READABLE_VAR_NAMES = "
+          start = s.find(marker)
+          if start >= 0:
+              end = s.find("\ndef VAR(n):", start)
+              if end < 0:
+                  raise SystemExit("VAR function boundary not found")
+              s = s[:start] + marker + repr(readable) + s[end:]
+          else:
+              needle = "def VAR(n):\n"
               if needle not in s:
                   raise SystemExit("VAR function not found")
-              s = s.replace(needle, mapping + needle, 1)
-          else:
-              s = re.sub(r'READABLE_VAR_NAMES = .*?\n(?=def VAR\\(n\\):)', 'READABLE_VAR_NAMES = ' + repr(readable) + '\n', s, count=1, flags=re.S)
-
+              s = s.replace(needle, marker + repr(readable) + "\n" + needle, 1)
           old = 'VARS[n] = {"id": nid(), "name": n, "shown": False, "x": 0, "y": 0, "obj": None}'
           new = 'VARS[n] = {"id": nid(), "name": READABLE_VAR_NAMES.get(n, n), "shown": False, "x": 0, "y": 0, "obj": None}'
           if old in s:
               s = s.replace(old, new, 1)
           elif new not in s:
               raise SystemExit("VAR variable record target not found")
-
           s = s.replace('tarfile.open(out,"w:gz")', 'tarfile.open(out,"w:gz",compresslevel=6)')
-          s = s.replace('"name":"우노카드 + 체스 v0.1.6"', '"name":"우노카드 + 체스 v0.1.8"')
-          s = s.replace('"name":"우노카드 + 체스 v0.1.7"', '"name":"우노카드 + 체스 v0.1.8"')
+          for old_name in ("우노카드 + 체스 v0.1.6", "우노카드 + 체스 v0.1.7"):
+              s = s.replace('"name":"' + old_name + '"', '"name":"우노카드 + 체스 v0.1.8"')
+          ast.parse(s)
           p.write_text(s, encoding="utf-8")
           PY
-
           python -m py_compile make_ent.py
-
       - name: Build .ent
         run: python make_ent.py
-
       - name: Validate generated ENT project JSON
         run: |
           python - <<'PY'
           import json, tarfile
           from pathlib import Path
-
           ent = Path("outputs/우노카드_체스.ent")
           if not ent.exists() or ent.stat().st_size == 0:
               raise SystemExit("ENT file was not created")
-
           with tarfile.open(ent, "r:gz") as t:
               member = t.getmember("temp/project.json")
               data = json.loads(t.extractfile(member).read().decode("utf-8"))
-
           required = ["objects", "variables", "messages", "functions", "scenes", "interface"]
           missing = [k for k in required if k not in data]
           if missing:
               raise SystemExit(f"project.json missing keys: {missing}")
-
           var_ids = {v["id"] for v in data["variables"] if isinstance(v, dict) and "id" in v}
           msg_ids = {m["id"] for m in data["messages"] if isinstance(m, dict) and "id" in m}
           block_count = 0
-
           def walk(value):
               global block_count
               if isinstance(value, dict):
@@ -145,32 +105,25 @@ jobs:
               elif isinstance(value, list):
                   for child in value:
                       walk(child)
-
           for obj in data["objects"]:
               if not isinstance(obj.get("script"), str):
                   raise SystemExit(f"object script is not JSON text: {obj.get('name')}")
-              script = json.loads(obj["script"])
-              walk(script)
-
+              walk(json.loads(obj["script"]))
           if not data["objects"] or block_count == 0:
               raise SystemExit("no objects or blocks found")
-
           names = [v.get("name") for v in data["variables"] if isinstance(v, dict)]
-          if "di" in names or "dj" in names or "dc_i" in names:
+          if any(x in names for x in ("di", "dj", "dc_i", "dv_i", "bc_col", "bc_row")):
               raise SystemExit("internal variable names were not renamed")
-
           print(f"ENT validation OK: {ent.stat().st_size} bytes, objects={len(data['objects'])}, blocks={block_count}")
           print(f"variables={len(var_ids)}, messages={len(msg_ids)}")
           PY
-
-      - name: Publish repaired source and .ent
+      - name: Publish .ent and repaired source
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add make_ent.py "outputs/우노카드_체스.ent"
-          git commit -m "Rename Entry variables for readability and build v0.1.8" || echo "No changes to commit"
+          git commit -m "Make Entry variables readable and build v0.1.8" || echo "No changes to commit"
           git push
-
       - name: Upload .ent artifact
         uses: actions/upload-artifact@v4
         with:
