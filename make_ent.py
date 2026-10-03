@@ -33,9 +33,10 @@ def blk(t, p=None, st=None):
 
 VARS, LISTS, MSGS, OBJ = {}, {}, {}, {}
 
+READABLE_VAR_NAMES = {'bc_col': '보드 현재 열', 'bc_row': '보드 현재 행', 'dc_i': '덱 색상 순번', 'dv_i': '덱 카드 순번', 'dw_i': '와일드 카드 순번', 'di': '셔플 위치 1', 'dj': '셔플 위치 2', 'dt1': '임시 카드 색', 'dt2': '임시 카드 값', 'cardC': '현재 카드 색', 'cardV': '현재 카드 값', 'phase': '게임 단계', 'flip': '보드 회전 상태', 'skip': '턴 건너뛰기', 'win': '승리 상태', 'moves': '남은 이동 횟수', 'turn': '현재 플레이어', 'sel_c': '선택한 열', 'sel_r': '선택한 행', 'selColor': '선택한 말 색', 'selType': '선택한 말 종류', 'selCol': '선택한 말 열', 'selRow': '선택한 말 행', 'pcol': '말 현재 열', 'prow': '말 현재 행', 'pk': '말 보드 위치', 'pcc': '말 색', 'pty': '말 종류', 'hit': '잡힌 말 여부', 'hi': '힌트 순번', 'hc': '힌트 열', 'hr': '힌트 행', 'bi': '선택창 순번', 'bty': '선택 종류', 'by': '선택창 Y좌표', 'pick': '선택한 종류', 'sc': '판정 시작 열', 'sr': '판정 시작 행', 'qk': '판정 보드 위치', 'mc': '이동할 말 색', 'mt': '이동할 말 종류', 'tc': '검사 중 열', 'tr': '검사 중 행', 'rk': '검사 보드 위치', 'qc': '목표 열', 'qr': '목표 행', 'mk': '출발 보드 위치', 'mk2': '도착 보드 위치'}
 def VAR(n):
     if n not in VARS:
-        VARS[n] = {"id": nid(), "name": n, "shown": False, "x": 0, "y": 0, "obj": None}
+        VARS[n] = {"id": nid(), "name": READABLE_VAR_NAMES.get(n, n), "shown": False, "x": 0, "y": 0, "obj": None}
     return VARS[n]["id"]
 
 def shown(n, x, y):
@@ -491,7 +492,7 @@ for l in LISTS.values():
     })
 
 proj={
-    "name":"우노카드 + 체스 v0.1.7","category":"기타","speed":60,
+    "name":"우노카드 + 체스 v0.1.8","category":"기타","speed":60,
     "objects":objects,"scenes":[{"name":"장면 1","id":"sc01"}],
     "variables":variables,
     "messages":[{"id":i,"name":n} for n,i in MSGS.items()],
