@@ -1,0 +1,57 @@
+name: Build Entry Project V2
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate generator
+        run: python -m py_compile make_ent.py postprocess_ent_v2.py
+      - name: Build base ENT
+        run: python make_ent.py
+      - name: Apply v2 layout and deck function
+        run: python postprocess_ent_v2.py
+      - name: Validate v2 ENT
+        run: |
+          python - <<'PY'
+          import json, tarfile
+          from pathlib import Path
+          p=Path('outputs/우노카드_체스.ent')
+          with tarfile.open(p,'r:gz') as t:
+              data=json.loads(t.extractfile('temp/project.json').read().decode())
+          f=[x for x in data.get('functions',[]) if x.get('id')=='deck_build_v2']
+          if not f: raise SystemExit('deck_build_v2 function missing')
+          deck=next(x for x in data['objects'] if x.get('name')=='덱')
+          if len(deck.get('script',''))>5000: raise SystemExit('deck object script still too large')
+          visible=[x for x in data['objects'] if x.get('entity',{}).get('visible')]
+          if len(visible)<35: raise SystemExit(f'visible object count too small: {len(visible)}')
+          for o in visible:
+              e=o.get('entity',{})
+              if not (-240 <= e.get('x',0) <= 240 and -180 <= e.get('y',0) <= 180):
+                  raise SystemExit(f'object outside stage safe area: {o.get("name")} {e.get("x")},{e.get("y")}')
+          print(f'V2 OK: {p.stat().st_size} bytes, objects={len(data["objects"])}, visible={len(visible)}, functions={len(data["functions"])}')
+          PY
+      - name: Publish
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add outputs/우노카드_체스.ent
+          git commit -m 'Build UNO Chess v0.2.1' || echo 'No changes to commit'
+          git push
+      - name: Upload ENT
+        uses: actions/upload-artifact@v4
+        with:
+          name: 우노카드-체스-v2
+          path: outputs/우노카드_체스.ent
+          if-no-files-found: error
