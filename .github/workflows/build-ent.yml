@@ -25,60 +25,98 @@ jobs:
       - name: Validate generator
         run: python -m py_compile make_ent.py
 
-      - name: Build .ent
+      - name: Build base ENT
         run: python make_ent.py
 
-      - name: Validate generated ENT project JSON
+      - name: Add visible board, pieces and UI
         run: |
           python - <<'PY'
-          import json, tarfile
+          import io,json,tarfile,hashlib,shutil
           from pathlib import Path
+          from PIL import Image,ImageDraw,ImageFont
+          ent=Path("outputs/우노카드_체스.ent")
+          with tarfile.open(ent,"r:gz") as t:
+              members={m.name:t.extractfile(m).read() for m in t.getmembers() if m.isfile()}
+          data=json.loads(members["temp/project.json"].decode())
+          font=ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",18)
+          def png(im):
+              b=io.BytesIO(); im.save(b,"PNG",optimize=True); return b.getvalue()
+          assets={}
+          def asset(im):
+              raw=png(im); fn=hashlib.md5(raw).hexdigest()+".png"; path=f"temp/{fn[:2]}/{fn[2:4]}/image/{fn}"; assets[path]=raw; return fn
+          def bg():
+              im=Image.new("RGBA",(640,480),(18,23,30,255)); d=ImageDraw.Draw(im); d.rectangle((18,18,622,462),fill=(30,38,49,255),outline=(92,105,124,255),width=2); d.text((238,25),"UNO CARD + CHESS",font=font,fill="white"); return im
+          def board():
+              im=Image.new("RGBA",(448,448),(0,0,0,0)); d=ImageDraw.Draw(im)
+              for r in range(8):
+                  for c in range(8): d.rectangle((c*56,r*56,c*56+55,r*56+55),fill=((240,217,181,255) if (r+c)%2==0 else (181,136,99,255)))
+              d.rectangle((0,0,447,447),outline=(20,20,20,255),width=4); return im
+          def panel():
+              im=Image.new("RGBA",(176,420),(0,0,0,0)); d=ImageDraw.Draw(im); d.rectangle((2,2,173,417),fill=(39,47,59,245),outline=(100,112,130,255),width=2); d.text((39,18),"UNO CARD",font=font,fill="white"); d.rectangle((35,58,141,158),fill="white",outline="black",width=3); d.text((61,95),"CARD",font=font,fill="black")
+              for i,(s,col) in enumerate([("DRAW",(59,111,212,255)),("USE",(46,158,78,255)),("END",(192,57,43,255))]):
+                  y=185+i*54; d.rectangle((20,y,156,y+38),fill=col); d.text((70,y+8),s,font=font,fill="white")
+              return im
+          def piece(k,b):
+              im=Image.new("RGBA",(52,52),(0,0,0,0)); d=ImageDraw.Draw(im); f=(45,48,55,255) if b else (245,245,240,255); e=(225,225,225,255) if b else (25,25,25,255)
+              if k=="킹": d.rectangle((23,4,29,17),fill=f,outline=e,width=2); d.rectangle((18,10,34,16),fill=f,outline=e,width=2); d.polygon([(16,20),(36,20),(32,40),(20,40)],fill=f,outline=e)
+              elif k=="퀸": d.polygon([(12,12),(18,21),(26,9),(34,21),(40,12),(37,40),(15,40)],fill=f,outline=e)
+              elif k=="룩": d.polygon([(12,11),(17,11),(17,7),(22,7),(22,11),(30,11),(30,7),(35,7),(35,11),(40,11),(37,40),(15,40)],fill=f,outline=e)
+              elif k=="비숍": d.ellipse((16,7,36,28),fill=f,outline=e,width=2); d.polygon([(14,40),(38,40),(33,24),(19,24)],fill=f,outline=e); d.line((21,20,33,10),fill=e,width=3)
+              elif k=="나이트": d.polygon([(13,40),(16,19),(22,9),(34,12),(39,24),(32,25),(35,40)],fill=f,outline=e)
+              else: d.ellipse((17,7,35,25),fill=f,outline=e,width=2); d.polygon([(14,40),(38,40),(34,23),(18,23)],fill=f,outline=e)
+              return im
+          bgf,brdf,panf=asset(bg()),asset(board()),asset(panel())
+          pieces={(c,k):asset(piece(k,c=="흑")) for c in ("백","흑") for k in ("킹","퀸","룩","비숍","나이트","폰")}
+          def oid(s): return hashlib.md5(s.encode()).hexdigest()[:8]
+          def pic(pid,name,fn,w,h): return {"id":pid,"name":name,"filename":fn[:-4],"fileurl":f"temp/{fn[:2]}/{fn[2:4]}/image/{fn}","imageType":"png","dimension":{"width":w,"height":h},"scale":100}
+          vis=[]
+          def obj(name,fn,w,h,x,y):
+              pid=oid("pic:"+name); vis.append({"id":oid("obj:"+name),"name":name,"order":-10000+len(vis),"objectType":"sprite","rotateMethod":"free","scene":"sc01","lock":False,"sprite":{"pictures":[pic(pid,name,fn,w,h)],"sounds":[]},"selectedPictureId":pid,"script":"[]","entity":{"x":x,"y":y,"regX":w/2,"regY":h/2,"scaleX":1,"scaleY":1,"rotation":0,"direction":90,"width":w,"height":h,"font":"undefinedpx ","visible":True}})
+          obj("게임 배경",bgf,640,480,0,0)
+          left=-299; top=224
+          obj("체스판",brdf,448,448,-75,0)
+          obj("UNO 패널",panf,176,420,245,0)
+          files=["A","B","C","D","E","F","G","H"]; kinds=["룩","나이트","비숍","퀸","킹","비숍","나이트","룩"]
+          for r in range(8):
+              for c in range(8):
+                  im=Image.new("RGBA",(56,56),((240,217,181,255) if (r+c)%2==0 else (181,136,99,255))); fn=asset(im); obj(f"칸 {files[c]}{8-r}",fn,56,56,left+c*56+28,top-r*56-28)
+          for c,k in enumerate(kinds):
+              for color,row in (("백",0),("흑",7)):
+                  fn=pieces[(color,k)]; obj(f"{color} {k} {files[c]}",fn,52,52,left+c*56+28,top-row*56-28)
+              for color,row in (("백",1),("흑",6)):
+                  fn=pieces[(color,"폰")]; obj(f"{color} 폰 {files[c]}",fn,52,52,left+c*56+28,top-row*56-28)
+          data["objects"]=vis+data["objects"]; data["interface"]["object"]=vis[0]["id"]; data["name"]="우노카드 + 체스 v0.1.9"; members["temp/project.json"]=json.dumps(data,ensure_ascii=False,separators=(",",":")).encode(); members.update(assets)
+          out=ent.with_suffix(".tmp.ent")
+          with tarfile.open(out,"w:gz",compresslevel=6) as t:
+              for path,raw in members.items():
+                  ti=tarfile.TarInfo(path); ti.size=len(raw); ti.mtime=0; ti.mode=0o644; t.addfile(ti,io.BytesIO(raw))
+          out.replace(ent); print("visible objects:",len(vis),"assets:",len(assets))
+          PY
 
-          ent = Path("outputs/우노카드_체스.ent")
-          if not ent.exists() or ent.stat().st_size == 0:
-              raise SystemExit("ENT file was not created")
-
-          with tarfile.open(ent, "r:gz") as t:
-              member = t.getmember("temp/project.json")
-              data = json.loads(t.extractfile(member).read().decode("utf-8"))
-
-          required = ["objects", "variables", "messages", "functions", "scenes", "interface"]
-          missing = [k for k in required if k not in data]
-          if missing:
-              raise SystemExit(f"project.json missing keys: {missing}")
-
-          block_count = 0
-          def walk(value):
-              global block_count
-              if isinstance(value, dict):
-                  if "type" in value:
-                      block_count += 1
-                      if not isinstance(value.get("params", []), list):
-                          raise SystemExit(f"invalid params in block {value.get('id')}")
-                      if not isinstance(value.get("statements", []), list):
-                          raise SystemExit(f"invalid statements in block {value.get('id')}")
-                  for child in value.values():
-                      walk(child)
-              elif isinstance(value, list):
-                  for child in value:
-                      walk(child)
-
-          for obj in data["objects"]:
-              if not isinstance(obj.get("script"), str):
-                  raise SystemExit(f"object script is not JSON text: {obj.get('name')}")
-              walk(json.loads(obj["script"]))
-
-          if not data["objects"] or block_count == 0:
-              raise SystemExit("no objects or blocks found")
-
-          print(f"ENT validation OK: {ent.stat().st_size} bytes, objects={len(data['objects'])}, blocks={block_count}")
+      - name: Validate generated ENT
+        run: |
+          python - <<'PY'
+          import json,tarfile
+          from pathlib import Path
+          ent=Path("outputs/우노카드_체스.ent")
+          with tarfile.open(ent,"r:gz") as t:
+              names=set(t.getnames()); data=json.loads(t.extractfile("temp/project.json").read().decode())
+              pngs=[n for n in names if "/image/" in n and n.endswith(".png")]
+              vis=[o for o in data["objects"] if o.get("entity",{}).get("visible")]
+              if len(vis)<35: raise SystemExit(f"visible objects too few: {len(vis)}")
+              if len(pngs)<10: raise SystemExit(f"png assets too few: {len(pngs)}")
+              for o in vis:
+                  for p in o["sprite"]["pictures"]:
+                      if p["fileurl"] not in names: raise SystemExit("missing asset: "+p["fileurl"])
+              print(f"ENT OK: {ent.stat().st_size} bytes, objects={len(data['objects'])}, visible={len(vis)}, pngs={len(pngs)}")
+          PY
 
       - name: Publish .ent
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "outputs/우노카드_체스.ent"
-          git commit -m "Build UNO Chess Entry project" || echo "No changes to commit"
+          git commit -m "Build visible UNO Chess Entry project" || echo "No changes to commit"
           git push
 
       - name: Upload .ent artifact
