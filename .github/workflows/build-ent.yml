@@ -31,66 +31,103 @@ jobs:
       - name: Add visible board, pieces and UI
         run: |
           python - <<'PY'
-          import io,json,tarfile,hashlib,shutil
+          import io,json,tarfile,hashlib
           from pathlib import Path
-          from PIL import Image,ImageDraw,ImageFont
+          from xml.sax.saxutils import escape
+
           ent=Path("outputs/우노카드_체스.ent")
           with tarfile.open(ent,"r:gz") as t:
               members={m.name:t.extractfile(m).read() for m in t.getmembers() if m.isfile()}
           data=json.loads(members["temp/project.json"].decode())
-          font=ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",18)
-          def png(im):
-              b=io.BytesIO(); im.save(b,"PNG",optimize=True); return b.getvalue()
           assets={}
-          def asset(im):
-              raw=png(im); fn=hashlib.md5(raw).hexdigest()+".png"; path=f"temp/{fn[:2]}/{fn[2:4]}/image/{fn}"; assets[path]=raw; return fn
-          def bg():
-              im=Image.new("RGBA",(640,480),(18,23,30,255)); d=ImageDraw.Draw(im); d.rectangle((18,18,622,462),fill=(30,38,49,255),outline=(92,105,124,255),width=2); d.text((238,25),"UNO CARD + CHESS",font=font,fill="white"); return im
-          def board():
-              im=Image.new("RGBA",(448,448),(0,0,0,0)); d=ImageDraw.Draw(im)
-              for r in range(8):
-                  for c in range(8): d.rectangle((c*56,r*56,c*56+55,r*56+55),fill=((240,217,181,255) if (r+c)%2==0 else (181,136,99,255)))
-              d.rectangle((0,0,447,447),outline=(20,20,20,255),width=4); return im
-          def panel():
-              im=Image.new("RGBA",(176,420),(0,0,0,0)); d=ImageDraw.Draw(im); d.rectangle((2,2,173,417),fill=(39,47,59,245),outline=(100,112,130,255),width=2); d.text((39,18),"UNO CARD",font=font,fill="white"); d.rectangle((35,58,141,158),fill="white",outline="black",width=3); d.text((61,95),"CARD",font=font,fill="black")
-              for i,(s,col) in enumerate([("DRAW",(59,111,212,255)),("USE",(46,158,78,255)),("END",(192,57,43,255))]):
-                  y=185+i*54; d.rectangle((20,y,156,y+38),fill=col); d.text((70,y+8),s,font=font,fill="white")
-              return im
-          def piece(k,b):
-              im=Image.new("RGBA",(52,52),(0,0,0,0)); d=ImageDraw.Draw(im); f=(45,48,55,255) if b else (245,245,240,255); e=(225,225,225,255) if b else (25,25,25,255)
-              if k=="킹": d.rectangle((23,4,29,17),fill=f,outline=e,width=2); d.rectangle((18,10,34,16),fill=f,outline=e,width=2); d.polygon([(16,20),(36,20),(32,40),(20,40)],fill=f,outline=e)
-              elif k=="퀸": d.polygon([(12,12),(18,21),(26,9),(34,21),(40,12),(37,40),(15,40)],fill=f,outline=e)
-              elif k=="룩": d.polygon([(12,11),(17,11),(17,7),(22,7),(22,11),(30,11),(30,7),(35,7),(35,11),(40,11),(37,40),(15,40)],fill=f,outline=e)
-              elif k=="비숍": d.ellipse((16,7,36,28),fill=f,outline=e,width=2); d.polygon([(14,40),(38,40),(33,24),(19,24)],fill=f,outline=e); d.line((21,20,33,10),fill=e,width=3)
-              elif k=="나이트": d.polygon([(13,40),(16,19),(22,9),(34,12),(39,24),(32,25),(35,40)],fill=f,outline=e)
-              else: d.ellipse((17,7,35,25),fill=f,outline=e,width=2); d.polygon([(14,40),(38,40),(34,23),(18,23)],fill=f,outline=e)
-              return im
-          bgf,brdf,panf=asset(bg()),asset(board()),asset(panel())
-          pieces={(c,k):asset(piece(k,c=="흑")) for c in ("백","흑") for k in ("킹","퀸","룩","비숍","나이트","폰")}
+
+          def svg(w,h,body):
+              return f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" viewBox="0 0 {w} {h}">{body}</svg>'.encode()
+
+          def asset(raw):
+              fn=hashlib.md5(raw).hexdigest()+".svg"
+              path=f"temp/{fn[:2]}/{fn[2:4]}/image/{fn}"
+              assets[path]=raw
+              return fn
+
           def oid(s): return hashlib.md5(s.encode()).hexdigest()[:8]
-          def pic(pid,name,fn,w,h): return {"id":pid,"name":name,"filename":fn[:-4],"fileurl":f"temp/{fn[:2]}/{fn[2:4]}/image/{fn}","imageType":"png","dimension":{"width":w,"height":h},"scale":100}
+
+          def pic(pid,name,fn,w,h):
+              return {"id":pid,"name":name,"filename":fn[:-4],"fileurl":f"temp/{fn[:2]}/{fn[2:4]}/image/{fn}","imageType":"svg","dimension":{"width":w,"height":h},"scale":100}
+
           vis=[]
-          def obj(name,fn,w,h,x,y):
-              pid=oid("pic:"+name); vis.append({"id":oid("obj:"+name),"name":name,"order":-10000+len(vis),"objectType":"sprite","rotateMethod":"free","scene":"sc01","lock":False,"sprite":{"pictures":[pic(pid,name,fn,w,h)],"sounds":[]},"selectedPictureId":pid,"script":"[]","entity":{"x":x,"y":y,"regX":w/2,"regY":h/2,"scaleX":1,"scaleY":1,"rotation":0,"direction":90,"width":w,"height":h,"font":"undefinedpx ","visible":True}})
-          obj("게임 배경",bgf,640,480,0,0)
-          left=-299; top=224
-          obj("체스판",brdf,448,448,-75,0)
-          obj("UNO 패널",panf,176,420,245,0)
-          files=["A","B","C","D","E","F","G","H"]; kinds=["룩","나이트","비숍","퀸","킹","비숍","나이트","룩"]
+          def obj(name,fn,w,h,x,y,scale=1):
+              pid=oid("pic:"+name)
+              vis.append({
+                  "id":oid("obj:"+name),"name":name,"order":-10000+len(vis),
+                  "objectType":"sprite","rotateMethod":"free","scene":"sc01","lock":False,
+                  "sprite":{"pictures":[pic(pid,name,fn,w,h)],"sounds":[]},
+                  "selectedPictureId":pid,"script":"[]",
+                  "entity":{"x":x,"y":y,"regX":w/2,"regY":h/2,"scaleX":scale,"scaleY":scale,"rotation":0,"direction":90,"width":w,"height":h,"font":"undefinedpx ","visible":True}
+              })
+
+          bg=svg(640,480,'<rect width="640" height="480" fill="#12171e"/><rect x="12" y="12" width="616" height="456" rx="12" fill="#1e2631" stroke="#657080" stroke-width="2"/><text x="320" y="35" text-anchor="middle" font-family="Arial" font-size="18" font-weight="bold" fill="white">UNO CARD + CHESS</text>')
+          obj("게임 배경",asset(bg),640,480,0,0)
+
+          board_body=[]
           for r in range(8):
               for c in range(8):
-                  im=Image.new("RGBA",(56,56),((240,217,181,255) if (r+c)%2==0 else (181,136,99,255))); fn=asset(im); obj(f"칸 {files[c]}{8-r}",fn,56,56,left+c*56+28,top-r*56-28)
+                  col="#f0d9b5" if (r+c)%2==0 else "#b58863"
+                  board_body.append(f'<rect x="{c*56}" y="{r*56}" width="56" height="56" fill="{col}"/>')
+          board_body.append('<rect x="2" y="2" width="444" height="444" fill="none" stroke="#111" stroke-width="4"/>')
+          board=svg(448,448,''.join(board_body))
+          obj("체스판",asset(board),448,448,-55,0)
+
+          panel_body=['<rect x="2" y="2" width="172" height="416" rx="8" fill="#27303b" stroke="#718096" stroke-width="2"/>','<text x="88" y="28" text-anchor="middle" font-family="Arial" font-size="18" font-weight="bold" fill="white">UNO CARD</text>','<rect x="34" y="55" width="108" height="102" rx="8" fill="white" stroke="#111" stroke-width="3"/>','<text x="88" y="112" text-anchor="middle" font-family="Arial" font-size="18" font-weight="bold" fill="#111">CARD</text>']
+          for i,(label,col) in enumerate([("DRAW","#3b6fd8"),("USE","#2e9b55"),("END","#c0392b")]):
+              y=182+i*55
+              panel_body.append(f'<rect x="18" y="{y}" width="138" height="38" rx="6" fill="{col}"/><text x="87" y="{y+25}" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="white">{label}</text>')
+          panel=svg(176,420,''.join(panel_body))
+          obj("UNO 패널",asset(panel),176,420,245,0)
+
+          left=-279; top=196
+          files="ABCDEFGH"
+          for r in range(8):
+              for c in range(8):
+                  label=f"{files[c]}{8-r}"
+                  body=f'<rect width="54" height="54" fill="#000" fill-opacity="0"/><text x="27" y="33" text-anchor="middle" font-family="Arial" font-size="11" fill="#000" fill-opacity="0.45">{label}</text>'
+                  obj(f"좌표 {label}",asset(svg(56,56,body)),56,56,left+c*56+28,top-r*56-28)
+
+          def piece(kind,black):
+              fill="#30343b" if black else "#f4f4ee"
+              stroke="#e1e1e1" if black else "#191919"
+              if kind=="킹": body=f'<path d="M23 4h6v6h6v6H29v6h9l-4 20H18l-4-20h9v-6h-6v-6h6z" fill="{fill}" stroke="{stroke}" stroke-width="2"/>'
+              elif kind=="퀸": body=f'<path d="M11 10l8 10 7-13 7 13 8-10-4 30H15z" fill="{fill}" stroke="{stroke}" stroke-width="2"/>'
+              elif kind=="룩": body=f'<path d="M11 9h7V5h5v4h8V5h5v4h7l-4 31H15z" fill="{fill}" stroke="{stroke}" stroke-width="2"/>'
+              elif kind=="비숍": body=f'<ellipse cx="26" cy="15" rx="11" ry="11" fill="{fill}" stroke="{stroke}" stroke-width="2"/><path d="M14 42h24l-5-20H19zM21 20l11-12" fill="{fill}" stroke="{stroke}" stroke-width="2"/>'
+              elif kind=="나이트": body=f'<path d="M13 42l3-22 7-12 12 3 5 13-7 2 3 16z" fill="{fill}" stroke="{stroke}" stroke-width="2"/>'
+              else: body=f'<circle cx="26" cy="15" r="9" fill="{fill}" stroke="{stroke}" stroke-width="2"/><path d="M14 42h24l-4-19H18z" fill="{fill}" stroke="{stroke}" stroke-width="2"/>'
+              return svg(52,52,body)
+
+          cache={}
+          for color in ("백","흑"):
+              for kind in ("킹","퀸","룩","비숍","나이트","폰"):
+                  cache[(color,kind)]=asset(piece(kind,color=="흑"))
+
+          kinds=["룩","나이트","비숍","퀸","킹","비숍","나이트","룩"]
           for c,k in enumerate(kinds):
               for color,row in (("백",0),("흑",7)):
-                  fn=pieces[(color,k)]; obj(f"{color} {k} {files[c]}",fn,52,52,left+c*56+28,top-row*56-28)
+                  obj(f"{color} {k} {files[c]}",cache[(color,k)],52,52,left+c*56+28,top-row*56-28)
               for color,row in (("백",1),("흑",6)):
-                  fn=pieces[(color,"폰")]; obj(f"{color} 폰 {files[c]}",fn,52,52,left+c*56+28,top-row*56-28)
-          data["objects"]=vis+data["objects"]; data["interface"]["object"]=vis[0]["id"]; data["name"]="우노카드 + 체스 v0.1.9"; members["temp/project.json"]=json.dumps(data,ensure_ascii=False,separators=(",",":")).encode(); members.update(assets)
+                  obj(f"{color} 폰 {files[c]}",cache[(color,"폰")],52,52,left+c*56+28,top-row*56-28)
+
+          data["objects"]=vis+data["objects"]
+          data["interface"]["object"]=vis[0]["id"]
+          data["name"]="우노카드 + 체스 v0.2.0"
+          members["temp/project.json"]=json.dumps(data,ensure_ascii=False,separators=(",",":")).encode()
+          members.update(assets)
+
           out=ent.with_suffix(".tmp.ent")
           with tarfile.open(out,"w:gz",compresslevel=6) as t:
               for path,raw in members.items():
                   ti=tarfile.TarInfo(path); ti.size=len(raw); ti.mtime=0; ti.mode=0o644; t.addfile(ti,io.BytesIO(raw))
-          out.replace(ent); print("visible objects:",len(vis),"assets:",len(assets))
+          out.replace(ent)
+          print("visible objects:",len(vis),"assets:",len(assets))
           PY
 
       - name: Validate generated ENT
@@ -101,14 +138,14 @@ jobs:
           ent=Path("outputs/우노카드_체스.ent")
           with tarfile.open(ent,"r:gz") as t:
               names=set(t.getnames()); data=json.loads(t.extractfile("temp/project.json").read().decode())
-              pngs=[n for n in names if "/image/" in n and n.endswith(".png")]
+              svgs=[n for n in names if "/image/" in n and n.endswith(".svg")]
               vis=[o for o in data["objects"] if o.get("entity",{}).get("visible")]
               if len(vis)<35: raise SystemExit(f"visible objects too few: {len(vis)}")
-              if len(pngs)<10: raise SystemExit(f"png assets too few: {len(pngs)}")
+              if len(svgs)<10: raise SystemExit(f"svg assets too few: {len(svgs)}")
               for o in vis:
                   for p in o["sprite"]["pictures"]:
                       if p["fileurl"] not in names: raise SystemExit("missing asset: "+p["fileurl"])
-              print(f"ENT OK: {ent.stat().st_size} bytes, objects={len(data['objects'])}, visible={len(vis)}, pngs={len(pngs)}")
+              print(f"ENT OK: {ent.stat().st_size} bytes, objects={len(data['objects'])}, visible={len(vis)}, svgs={len(svgs)}")
           PY
 
       - name: Publish .ent
