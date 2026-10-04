@@ -1,0 +1,66 @@
+name: Build Chess Entry Project
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate generator
+        run: python -m py_compile make_ent.py
+
+      - name: Build base ENT
+        run: python make_ent.py
+
+      - name: Install chess logic and layout
+        run: python tools/postprocess_chess.py
+
+      - name: Validate generated ENT
+        run: |
+          python - <<'PY'
+          import json, tarfile
+          from pathlib import Path
+          p=Path('outputs/우노카드_체스_체스.ent')
+          assert p.exists(), p
+          with tarfile.open(p,'r:gz') as t:
+              d=json.loads(t.extractfile('temp/project.json').read())
+          funcs=[f for f in d.get('functions',[]) if f.get('id')=='chess_turn']
+          assert funcs, 'chess_turn function missing'
+          f=funcs[0]
+          s=json.loads(f['content'])
+          assert s[0][0]['type']=='function_create'
+          label=s[0][0]['params'][0]
+          assert label['type']=='function_field_label'
+          assert label['params'][0]=='체스진행'
+          assert label['params'][1]['params'][0]=='stringParam_ct01'
+          assert label['params'][1]['params'][1]['params'][0]=='stringParam_ct02'
+          names={o['name'] for o in d['objects']}
+          assert {'체스판','UNO 패널','흑 킹 E','백 킹 E'} <= names
+          print('OK: chess function + board + pieces + existing chess engine preserved')
+          PY
+
+      - name: Publish
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add outputs/우노카드_체스_체스.ent
+          git commit -m "Build chess implementation" || exit 0
+          git push
+
+      - name: Upload ENT artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: uno-chess-implementation
+          path: outputs/우노카드_체스_체스.ent
