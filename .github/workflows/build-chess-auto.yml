@@ -1,0 +1,58 @@
+name: Build Chess Entry Project (auto)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "make_ent.py"
+      - "tools/postprocess_chess.py"
+      - ".github/workflows/build-chess-auto.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate generator
+        run: python -m py_compile make_ent.py tools/postprocess_chess.py
+      - name: Build base ENT
+        run: python make_ent.py
+      - name: Install chess implementation
+        run: python tools/postprocess_chess.py
+      - name: Validate project
+        run: |
+          python - <<'PY'
+          import json, tarfile
+          p='outputs/우노카드_체스_체스.ent'
+          with tarfile.open(p,'r:gz') as t:
+              d=json.loads(t.extractfile('temp/project.json').read())
+          f=next(f for f in d['functions'] if f['id']=='chess_turn')
+          root=json.loads(f['content'])[0][0]
+          label=root['params'][0]
+          assert label['params'][0]=='체스진행'
+          assert label['params'][1]['params'][0]=='stringParam_ct01'
+          assert label['params'][1]['params'][1]['params'][0]=='stringParam_ct02'
+          print('chess_turn OK:', '체스진행(횟수)(플레이어)')
+          print('objects:', len(d['objects']), 'functions:', len(d['functions']))
+          PY
+      - name: Publish
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add outputs/우노카드_체스_체스.ent
+          git commit -m "Build chess implementation artifact" || exit 0
+          git push
+      - name: Upload ENT artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: uno-chess-implementation
+          path: outputs/우노카드_체스_체스.ent
