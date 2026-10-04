@@ -1,0 +1,227 @@
+name: Patch Chess Turn Logic
+
+on:
+  workflow_run:
+    workflows: ["Build Entry Project"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout latest main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Patch chess turn loop and function
+        run: |
+          python - <<'PY'
+          import io, json, tarfile, hashlib
+          from pathlib import Path
+
+          ent = Path('outputs/우노카드_체스.ent')
+          if not ent.exists():
+              raise SystemExit('outputs/우노카드_체스.ent not found')
+
+          with tarfile.open(ent, 'r:gz') as t:
+              members = {m.name: t.extractfile(m).read() for m in t.getmembers() if m.isfile()}
+          data = json.loads(members['temp/project.json'].decode())
+
+          def bid(seed):
+              return hashlib.md5(seed.encode()).hexdigest()[:4]
+          def text(v):
+              return {'type':'text','params':[str(v)]}
+          def num(v):
+              return {'type':'number','params':[str(v)]}
+          def block(t, params=None, statements=None, seed=None):
+              return {
+                  'id': bid(seed or (t + json.dumps(params, ensure_ascii=False, sort_keys=True) + json.dumps(statements, ensure_ascii=False, sort_keys=True))),
+                  'x': 0, 'y': 0, 'type': t,
+                  'params': params if params is not None else [],
+                  'statements': statements if statements is not None else [],
+                  'movable': None, 'deletable': 1, 'emphasized': False,
+                  'readOnly': None, 'copyable': True, 'assemble': True, 'extensions': []
+              }
+          def setv(vid, value):
+              return block('set_variable', [vid, value, None])
+          def cast(mid):
+              return block('message_cast', [mid, None])
+          def call(fid, *args):
+              return block('func_' + fid, list(args))
+          def run():
+              return block('when_run_button_click', [None])
+          def msg(mid):
+              return block('when_message_cast', [mid, None])
+          def repeat_inf(body):
+              return block('repeat_inf', [None, None], [body])
+          def wait(sec):
+              return block('wait_second', [num(sec), None])
+
+          # Find / create the state variables used by the turn function.
+          vars_by_name = {v.get('name'): v for v in data.get('variables', [])}
+          def ensure_var(name, value='0'):
+              if name in vars_by_name:
+                  return vars_by_name[name]['id']
+              vid = bid('var:' + name)
+              rec = {'id': vid, 'name': name, 'shown': False, 'x': 0, 'y': 0,
+                     'obj': None, 'value': str(value), 'variableType': 'variable'}
+              data['variables'].append(rec)
+              vars_by_name[name] = rec
+              return vid
+
+          turn_vid = ensure_var('현재 턴', '백')
+          moves_vid = ensure_var('남은 이동', '0')
+
+          # A dedicated signal is used for the actual chess engine.
+          messages = data.setdefault('messages', [])
+          msg_by_name = {m.get('name'): m for m in messages}
+          if '체스 진행' in msg_by_name:
+              chess_msg = msg_by_name['체스 진행']['id']
+          else:
+              chess_msg = bid('message:체스 진행')
+              messages.append({'id': chess_msg, 'name': '체스 진행'})
+
+          # User function: 체스 진행(횟수)(플레이어)
+          # Entry user functions are normal/void functions, so the call can sit
+          # directly in a script thread.
+          fid = 'chess_turn'
+          p1 = 'stringParam_a1b2'
+          p2 = 'stringParam_c3d4'
+          param_chain = {
+              'type': 'function_field_string',
+              'params': [p1, {
+                  'type': 'function_field_string',
+                  'params': [p2, None]
+              }]
+          }
+          func_label = block('function_field_label', ["체스 진행", param_chain], seed='function-label-chess-turn')
+          func_def = block('function_create', [func_label, None], [[
+              setv(moves_vid, {'type': p1, 'params': []}),
+              setv(turn_vid, {'type': p2, 'params': []}),
+              cast(chess_msg)
+          ]], seed='function-create-chess-turn')
+
+          chess_function = {
+              'id': fid,
+              'type': 'normal',
+              'localVariables': [],
+              'useLocalVariables': False,
+              'content': json.dumps([[func_def]], ensure_ascii=False)
+          }
+
+          functions = [f for f in data.get('functions', []) if f.get('id') != fid]
+          functions.append(chess_function)
+          data['functions'] = functions
+
+          # Game manager: initialize the board, then continuously alternate
+          # exactly as requested: 체스 진행(1)(백) -> 체스 진행(1)(흑) -> ...
+          manager = next((o for o in data['objects'] if o.get('name') == '게임관리'), None)
+          if manager is None:
+              raise SystemExit('게임관리 object not found')
+
+          existing = []
+          try:
+              existing = json.loads(manager.get('script', '[[]]'))
+          except Exception:
+              existing = []
+
+          # Preserve non-start/message threads that contain the existing chess UI
+          # handlers. Replace only the old run-button thread so the UNO code is
+          # left alone.
+          preserved = [th for th in existing if not (th and th[0].get('type') == 'when_run_button_click')]
+
+          start_thread = [
+              run(),
+              setv(turn_vid, text('백')),
+              setv(moves_vid, num(1)),
+              cast('opwo'),
+              wait(0.1),
+              repeat_inf([
+                  call(fid, text('1'), text('백')),
+                  wait(0.1),
+                  call(fid, text('1'), text('흑')),
+                  wait(0.1)
+              ])
+          ]
+          manager['script'] = json.dumps([start_thread] + preserved, ensure_ascii=False)
+
+          # Correct the visible side assignment to the user's convention:
+          # black at the bottom, white at the top. The previous generated UI
+          # had these two sides reversed.
+          for o in data['objects']:
+              n = o.get('name', '')
+              if n.startswith('백 ') and (' 폰 ' in n):
+                  o['entity']['y'] = 82.5
+              elif n.startswith('흑 ') and (' 폰 ' in n):
+                  o['entity']['y'] = -82.5
+              elif n.startswith('백 ') and n.rsplit(' ', 1)[-1] in 'ABCDEFGH':
+                  o['entity']['y'] = 115.5
+              elif n.startswith('흑 ') and n.rsplit(' ', 1)[-1] in 'ABCDEFGH':
+                  o['entity']['y'] = -115.5
+
+          data['name'] = '우노카드 + 체스 v0.3.0'
+          members['temp/project.json'] = json.dumps(data, ensure_ascii=False, separators=(',', ':')).encode()
+
+          tmp = ent.with_suffix('.tmp.ent')
+          with tarfile.open(tmp, 'w:gz', compresslevel=6) as t:
+              for path, raw in members.items():
+                  ti = tarfile.TarInfo(path)
+                  ti.size = len(raw)
+                  ti.mtime = 0
+                  ti.mode = 0o644
+                  t.addfile(ti, io.BytesIO(raw))
+          tmp.replace(ent)
+
+          print('Installed 체스 진행(횟수)(플레이어)')
+          print('Turn loop: 체스 진행(1)(백) -> 체스 진행(1)(흑) -> ...')
+          print('UNO deck/card logic was not modified by this patch.')
+          PY
+
+      - name: Validate chess patch
+        run: |
+          python - <<'PY'
+          import json, tarfile
+          from pathlib import Path
+          ent = Path('outputs/우노카드_체스.ent')
+          with tarfile.open(ent, 'r:gz') as t:
+              data = json.loads(t.extractfile('temp/project.json').read().decode())
+          f = next((f for f in data.get('functions', []) if f.get('id') == 'chess_turn'), None)
+          if not f:
+              raise SystemExit('chess_turn function missing')
+          if f.get('type') != 'normal':
+              raise SystemExit('chess_turn must be a normal/void function')
+          manager = next(o for o in data['objects'] if o.get('name') == '게임관리')
+          script = json.loads(manager['script'])
+          start = script[0]
+          types = [b.get('type') for b in start]
+          if 'repeat_inf' not in types:
+              raise SystemExit('continuous turn loop missing')
+          calls = []
+          def walk(b):
+              if isinstance(b, dict):
+                  if b.get('type') == 'func_chess_turn':
+                      calls.append(b)
+                  for p in b.get('params', []): walk(p)
+                  for th in b.get('statements', []):
+                      for x in th: walk(x)
+          for b in start: walk(b)
+          if len(calls) < 2:
+              raise SystemExit('both chess_turn calls missing')
+          args = [[p.get('params',[None])[0] for p in c['params']] for c in calls[:2]]
+          if args != [['1','백'], ['1','흑']]:
+              raise SystemExit(f'wrong initial calls: {args}')
+          print('CHESS TURN PATCH OK:', args)
+          PY
+
+      - name: Publish patched ENT
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add outputs/우노카드_체스.ent
+          git commit -m "Fix chess turn alternation and color sides" || echo "No changes to commit"
+          git push
